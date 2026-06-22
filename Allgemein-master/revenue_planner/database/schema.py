@@ -67,3 +67,27 @@ def _init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             PRIMARY KEY (filiale, datum)
         )
     """)
+
+    # Schulferien (Datumsbereich je Bundesland)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ferien (
+            id INTEGER PRIMARY KEY,
+            bundesland VARCHAR,
+            bezeichnung VARCHAR,
+            datum_von DATE NOT NULL,
+            datum_bis DATE NOT NULL
+        )
+    """)
+
+    # Korrekturen aus Wochentagsvalidierung L2
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS planwert_korrekturen2 (
+            datum DATE PRIMARY KEY,
+            wochentag INTEGER NOT NULL,
+            monat INTEGER NOT NULL,
+            original_gesamt DECIMAL(14, 2) NOT NULL,
+            wd_schnitt DECIMAL(14, 2) NOT NULL,
+            abweichung_pct DECIMAL(8, 4) NOT NULL,
+            korrigiert_gesamt DECIMAL(14, 2) NOT NULL
+        )
+    """)
