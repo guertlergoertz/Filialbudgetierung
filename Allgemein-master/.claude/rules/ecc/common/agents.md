@@ -1,41 +1,51 @@
-# Multi-Agent Architecture
+# Agent Orchestration
 
-## When to Use Sub-Agents
+## Available Agents
 
-- **Parallel tasks**: Independent work streams (e.g., fix bug + write tests + update docs)
-- **Isolation needed**: Risky operations needing separate context
-- **Specialization**: Tasks benefiting from focused context
-- **Long chains**: Multiple dependent steps exceeding context limits
+Located in `~/.claude/agents/`:
 
-## Agent Handoff Protocol
+| Agent | Purpose | When to Use |
+|-------|---------|-------------|
+| planner | Implementation planning | Complex features, refactoring |
+| architect | System design | Architectural decisions |
+| tdd-guide | Test-driven development | New features, bug fixes |
+| code-reviewer | Code review | After writing code |
+| security-reviewer | Security analysis | Before commits |
+| build-error-resolver | Fix build errors | When build fails |
+| e2e-runner | E2E testing | Critical user flows |
+| refactor-cleaner | Dead code cleanup | Code maintenance |
+| doc-updater | Documentation | Updating docs |
+| rust-reviewer | Rust code review | Rust projects |
+| harmonyos-app-resolver | HarmonyOS app development | HarmonyOS/ArkTS projects |
+
+## Immediate Agent Usage
+
+No user prompt needed:
+1. Complex feature requests - Use **planner** agent
+2. Code just written/modified - Use **code-reviewer** agent
+3. Bug fix or new feature - Use **tdd-guide** agent
+4. Architectural decision - Use **architect** agent
+
+## Parallel Task Execution
+
+ALWAYS use parallel Task execution for independent operations:
 
 ```markdown
-## Task for Sub-Agent
-**Context**: [minimal needed context]
-**Goal**: [specific, measurable outcome]
-**Constraints**: [what NOT to do]
-**Success criteria**: [how to verify completion]
-**Return**: [what to report back]
+# GOOD: Parallel execution
+Launch 3 agents in parallel:
+1. Agent 1: Security analysis of auth module
+2. Agent 2: Performance review of cache system
+3. Agent 3: Type checking of utilities
+
+# BAD: Sequential when unnecessary
+First agent 1, then agent 2, then agent 3
 ```
 
-## Orchestrator Responsibilities
+## Multi-Perspective Analysis
 
-1. Decompose task into independent units
-2. Assign clear ownership per agent
-3. Define interfaces between agents
-4. Verify outputs before integration
-5. Handle failures gracefully
-
-## Sub-Agent Best Practices
-
-- Complete ONE thing well
-- Report blockers immediately
-- Don't assume context not given
-- Verify your own output before returning
-
-## Anti-Patterns
-
-- Spawning agents for simple sequential tasks
-- Giving agents overlapping responsibilities
-- Missing error handling between agent handoffs
-- Not defining success criteria upfront
+For complex problems, use split role sub-agents:
+- Factual reviewer
+- Senior engineer
+- Security expert
+- Consistency reviewer
+- Redundancy checker

@@ -1,0 +1,12 @@
+Logos hier als PNG-Dateien ablegen:
+
+  goertz_logo.png    → Logo von Bäcker Görtz
+  papperts_logo.png  → Logo von Pappert's
+
+Die App erkennt die Dateien automatisch und zeigt sie oben in der Sidebar an.
+Empfohlene Größe: Breite ca. 200 px, transparenter Hintergrund (PNG).
+
+So speichern:
+  1. Website im Browser öffnen (baeckergoertz.de / papperts.de)
+  2. Rechtsklick auf das Logo → "Grafik speichern unter"
+  3. Datei in diesen Ordner kopieren und umbenennen

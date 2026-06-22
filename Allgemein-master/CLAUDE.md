@@ -9,81 +9,71 @@
 
 ---
 
-## Projektüberblick
+## 1. Projektüberblick
 
-**Ziel:** Automatisierte Jahresumsatzplanung für alle Filialen (Bäcker Görtz + Papperts) auf Tagesbasis.
+**Ziel:** Web-App (Streamlit + SQLite) zur tagesgenauen Umsatzplanung für ~255 Filialen
+der Bäcker Görtz / Papperts Gruppe. Ersetzt Excel-Budgetierung. **Stellenwert: sehr hoch**
+— das komplette Unternehmensbudget basiert auf diesen Berechnungen.
 
-**Tech-Stack:** Python 3.11 · Streamlit · SQLite · Pandas · OpenPyXL
-
-**Einstiegspunkt:** `revenue_planner/app.py` (Streamlit-App)
-
----
-
-## Wichtige Dateien
-
-| Datei | Zweck |
-|---|---|
-| `revenue_planner/planning/engine.py` | Kern-Planungslogik (Umsatzherleitung) |
-| `revenue_planner/planning/engine2.py` | Alternative Engine (vereinfacht) |
-| `revenue_planner/planning/datumsmapping.py` | KW/Datum-Mapping, Wochentags-Indizes |
-| `revenue_planner/database/schema.py` | DB-Schema + Init |
-| `revenue_planner/database/importer.py` | Excel-Import |
-| `revenue_planner/ui/pages/` | Streamlit-Seiten |
+**Stack:** Python 3.11+, Streamlit 1.35+, SQLite, Pandas, openpyxl, holidays, Pillow
+**Start:** `streamlit run revenue_planner/app.py`
 
 ---
 
-## Architektur (Kurzversion)
-
-Siehe `docs/architecture.md` für Details.
+## 2. Verzeichnisstruktur
 
 ```
-Excel-Import → SQLite-DB → Planning Engine → Export (Excel)
-                              ↑
-                         Streamlit-UI
-```
-
-**DB-Tabellen (wichtigste):**
-- `umsaetze` – historische Tagesumsatzdaten
-- `filialen` – Stammdaten Filialen
-- `planwerte` – berechnete Planwerte
-- `parameter` – Konfigurationsparameter
-- `feiertage` – Feiertagskalender
-- `oeffnungstage` – Soll-Öffnungszeiten
-
----
-
-## Bekannte offene Punkte
-
-Siehe `docs/open-issues.md` für die vollständige Liste.
-
-**Kritisch:**
-- Keine automatischen Tests für Engine-Output (nur manuelle Prüfung)
-- Exportformat noch nicht final abgestimmt
-
----
-
-## Entwicklungs-Workflow
-
-```bash
-# App starten
-cd revenue_planner && streamlit run app.py
-
-# Tests ausführen
-pytest revenue_planner/tests/ -v
-
-# Abhängigkeiten installieren
-pip install -r revenue_planner/requirements.txt
+revenue_planner/
+├── app.py                    # Streamlit-Einstiegspunkt, Navigation, Logos
+├── database/
+│   ├── schema.py             # DDL + Migration (_migrate)
+│   └── importer.py           # IST-Import, detect_oeffnungstage
+├── planning/
+│   ├── engine.py             # Kern-Planungslogik Logik 1 (PlanningEngine → planung)
+│   ├── engine2.py            # Alternative Logik 2 (PlanningEngine2 → planung2)
+│   ├── datumsmapping.py      # Datumsmapping-Generator (von beiden Logiken genutzt)
+│   └── export.py             # Excel-Export
+├── tests/                    # pytest-Regressionssuite (inkl. test_engine2.py)
+└── ui/
+    ├── session.py            # get_conn(), get_gmbh(), require_db(), get_budgetjahr()
+    ├── assets/               # Logos
+    └── pages/                # 1_Startseite … 17_Planungsgenauigkeit2 (Logik 2 = 15/16/17)
+docs/
+├── architecture.md           # Schema, Datenfluss, Engine-Logik, Stolperfallen
+├── ui-patterns.md            # UI-Seiten, Patterns, Formatierung
+└── open-issues.md            # Offene Punkte, Änderungshistorie
 ```
 
 ---
 
-## Commit-Konvention
+## 3. Detail-Dokumentation — wann was lesen
 
-```
-<typ>(<scope>): <was>
+| Aufgabe | Doc lesen |
+|---------|-----------|
+| Änderungen an `engine.py`, `engine2.py`, `schema.py`, `datumsmapping.py`, `importer.py` | `Read docs/architecture.md` |
+| Änderungen an `ui/pages/*.py` oder `app.py` | `Read docs/ui-patterns.md` |
+| Neue Features planen, TODOs prüfen, Sitzungsende | `Read docs/open-issues.md` |
 
-typen: feat | fix | refactor | test | docs | chore
-scope: engine | ui | db | export | tests | docs
-```
+---
 
-Beispiel: `feat(engine): Saisonindex für Q4 ergänzt`
+## 4. Entwicklungsregeln
+
+1. **Branch:** `master` (direkt, kein Feature-Branch).
+2. **Commits:** Aussagekräftige englische Commit-Messages.
+3. **Keine halben Implementierungen.** Zu große Tasks als TODO in `docs/open-issues.md`.
+4. **Keine Breaking Changes** an der additiven Effekt-Identität ohne Regressionstest.
+   `budget = ist_vj + eff_oeffnung + eff_verteilung + eff_wochentag + eff_preis + eff_ferien + eff_feiertag + eff_norm`
+5. **SQLite-Migrationen** immer additiv in `schema.py::_migrate()` (nie droppen).
+6. **Öffnungstage-Defaults:** Wochentag = offen, Feiertag = geschlossen.
+7. **fil_nr immer als `str()`** normieren wenn `ist_umsatz` und `planung` verglichen werden.
+8. **eff_norm:** In DB behalten, aus allen UI-Anzeigen ausblenden.
+9. **Datumsformat UI:** immer `DD.MM.YYYY`. Placeholders immer Deutsch.
+10. **Kein Speichern-Button bei data_editor:** Auto-Save + `st.toast()` + `st.rerun()`.
+    Datums-Spalten vor Vergleich normalisieren (`_norm_for_compare`)!
+11. **Bundesland-Vergleiche** immer über `_normalize_bl()`. In UI ausgeschrieben anzeigen.
+12. **Bundesland als erste Spalte** in Tabellen, Sortierung BL → Datum.
+13. **DATENSCHUTZ — NIEMALS echte Betriebs- oder Filialdaten laden:**
+    `.db`-Dateien, CSV/Excel mit IST-Umsätzen oder Filialdaten **NIEMALS** per `Read`,
+    `Bash cat/head`, `pd.read_sql` o.ä. in den Kontext laden. Nur Schema, Code und
+    Docs lesen. DB-Abfragen ausschließlich zur Strukturprüfung (`SELECT name FROM
+    sqlite_master`) — keine `SELECT *` auf echten Produktionsdaten.

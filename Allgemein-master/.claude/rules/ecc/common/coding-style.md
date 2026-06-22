@@ -1,86 +1,90 @@
-# Coding Style Guide
+# Coding Style
 
-## Universal Principles
+## Immutability (CRITICAL)
 
-### Names
-- **Variables/functions**: describe what, not how (`user_count` not `n`, `fetch_user` not `do_thing`)
-- **Booleans**: use `is_`, `has_`, `can_`, `should_` prefix
-- **Constants**: SCREAMING_SNAKE_CASE
-- **Avoid**: abbreviations (except domain-standard), single letters (except loop vars)
+ALWAYS create new objects, NEVER mutate existing ones:
 
-### Functions
-- One function = one responsibility
-- Max ~30 lines (if longer, split)
-- Parameters: max 4 (use object/struct if more needed)
-- Return early to reduce nesting
-
-```python
-# Bad
-def process(data):
-    if data:
-        if data.valid:
-            result = transform(data)
-            if result:
-                return result
-    return None
-
-# Good
-def process(data):
-    if not data or not data.valid:
-        return None
-    result = transform(data)
-    return result
+```
+// Pseudocode
+WRONG:  modify(original, field, value) → changes original in-place
+CORRECT: update(original, field, value) → returns new copy with change
 ```
 
-### Comments
-- Comment WHY, not WHAT
-- Keep comments up-to-date with code
-- TODO format: `# TODO(name): description`
-- Avoid obvious comments
+Rationale: Immutable data prevents hidden side effects, makes debugging easier, and enables safe concurrency.
 
-```python
-# Bad
-x = x + 1  # increment x
+## Core Principles
 
-# Good
-x = x + 1  # offset for 1-based indexing in Excel output
-```
+### KISS (Keep It Simple)
 
-### Error Handling
-- Never silently swallow exceptions
-- Log errors with context
-- Fail fast at boundaries, recover gracefully inside
+- Prefer the simplest solution that actually works
+- Avoid premature optimization
+- Optimize for clarity over cleverness
 
-```python
-# Bad
-try:
-    result = risky_op()
-except:
-    pass
+### DRY (Don't Repeat Yourself)
 
-# Good
-try:
-    result = risky_op()
-except ValueError as e:
-    logger.error("risky_op failed for input %s: %s", input_val, e)
-    raise
-```
+- Extract repeated logic into shared functions or utilities
+- Avoid copy-paste implementation drift
+- Introduce abstractions when repetition is real, not speculative
 
-### Constants vs Magic Numbers
-```python
-# Bad
-if age > 18:
-    ...
+### YAGNI (You Aren't Gonna Need It)
 
-# Good
-MIN_ADULT_AGE = 18
-if age > MIN_ADULT_AGE:
-    ...
-```
+- Do not build features or abstractions before they are needed
+- Avoid speculative generality
+- Start simple, then refactor when the pressure is real
 
 ## File Organization
 
-- One concept per file
-- Imports: stdlib → third-party → local (separated by blank line)
-- Public API at top, helpers at bottom
-- Max file length: ~300 lines (split into modules if longer)
+MANY SMALL FILES > FEW LARGE FILES:
+- High cohesion, low coupling
+- 200-400 lines typical, 800 max
+- Extract utilities from large modules
+- Organize by feature/domain, not by type
+
+## Error Handling
+
+ALWAYS handle errors comprehensively:
+- Handle errors explicitly at every level
+- Provide user-friendly error messages in UI-facing code
+- Log detailed error context on the server side
+- Never silently swallow errors
+
+## Input Validation
+
+ALWAYS validate at system boundaries:
+- Validate all user input before processing
+- Use schema-based validation where available
+- Fail fast with clear error messages
+- Never trust external data (API responses, user input, file content)
+
+## Naming Conventions
+
+- Variables and functions: `camelCase` with descriptive names
+- Booleans: prefer `is`, `has`, `should`, or `can` prefixes
+- Interfaces, types, and components: `PascalCase`
+- Constants: `UPPER_SNAKE_CASE`
+- Custom hooks: `camelCase` with a `use` prefix
+
+## Code Smells to Avoid
+
+### Deep Nesting
+
+Prefer early returns over nested conditionals once the logic starts stacking.
+
+### Magic Numbers
+
+Use named constants for meaningful thresholds, delays, and limits.
+
+### Long Functions
+
+Split large functions into focused pieces with clear responsibilities.
+
+## Code Quality Checklist
+
+Before marking work complete:
+- [ ] Code is readable and well-named
+- [ ] Functions are small (<50 lines)
+- [ ] Files are focused (<800 lines)
+- [ ] No deep nesting (>4 levels)
+- [ ] Proper error handling
+- [ ] No hardcoded values (use constants or config)
+- [ ] No mutation (immutable patterns used)

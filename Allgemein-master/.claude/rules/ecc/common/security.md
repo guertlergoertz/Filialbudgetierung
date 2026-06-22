@@ -1,50 +1,29 @@
 # Security Guidelines
 
-## Never Do
+## Mandatory Security Checks
 
-- Hardcode credentials, tokens, API keys
-- Log sensitive data (passwords, PII)
-- Use `eval()` or `exec()` on user input
-- Build SQL with string concatenation
-- Trust user input without validation
+Before ANY commit:
+- [ ] No hardcoded secrets (API keys, passwords, tokens)
+- [ ] All user inputs validated
+- [ ] SQL injection prevention (parameterized queries)
+- [ ] XSS prevention (sanitized HTML)
+- [ ] CSRF protection enabled
+- [ ] Authentication/authorization verified
+- [ ] Rate limiting on all endpoints
+- [ ] Error messages don't leak sensitive data
 
-## Always Do
+## Secret Management
 
-### Credentials
-```python
-import os
-API_KEY = os.environ["API_KEY"]  # from environment
-```
+- NEVER hardcode secrets in source code
+- ALWAYS use environment variables or a secret manager
+- Validate that required secrets are present at startup
+- Rotate any secrets that may have been exposed
 
-### SQL
-```python
-# Bad
-cursor.execute(f"SELECT * FROM users WHERE id = {user_id}")
+## Security Response Protocol
 
-# Good
-cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
-```
-
-### File Paths
-```python
-import os
-safe_path = os.path.realpath(user_path)
-if not safe_path.startswith(ALLOWED_DIR):
-    raise ValueError("Path traversal detected")
-```
-
-## Sensitive Files
-
-Never commit:
-- `.env` files
-- `*.key`, `*.pem` files
-- Database files with real data
-- Config files with passwords
-
-Always in `.gitignore`:
-```
-.env
-*.key
-*.pem
-data/*.db
-```
+If security issue found:
+1. STOP immediately
+2. Use **security-reviewer** agent
+3. Fix CRITICAL issues before continuing
+4. Rotate any exposed secrets
+5. Review entire codebase for similar issues

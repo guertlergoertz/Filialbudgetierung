@@ -1,65 +1,55 @@
-# Performance Guidelines
+# Performance Optimization
 
-## Measure Before Optimizing
+## Model Selection Strategy
 
-```python
-import time
-start = time.perf_counter()
-# ... code ...
-elapsed = time.perf_counter() - start
-print(f"Elapsed: {elapsed:.3f}s")
-```
+**Haiku** (90% of Sonnet capability, 3x cost savings):
+- Lightweight agents with frequent invocation
+- Pair programming and code generation
+- Worker agents in multi-agent systems
 
-## Python-Specific
+**Sonnet** (Best coding model):
+- Main development work
+- Orchestrating multi-agent workflows
+- Complex coding tasks
 
-### DataFrame Operations
-```python
-# Bad: row-by-row
-for i, row in df.iterrows():
-    df.loc[i, 'result'] = row['a'] + row['b']
+**Opus** (Deepest reasoning):
+- Complex architectural decisions
+- Maximum reasoning requirements
+- Research and analysis tasks
 
-# Good: vectorized
-df['result'] = df['a'] + df['b']
-```
+## Context Window Management
 
-### Database Queries
-```python
-# Bad: N+1
-for filiale in filialen:
-    umsatz = db.query(f"SELECT SUM(umsatz) WHERE filiale='{filiale}'")
+Avoid last 20% of context window for:
+- Large-scale refactoring
+- Feature implementation spanning multiple files
+- Debugging complex interactions
 
-# Good: batch
-umsaetze = db.query("SELECT filiale, SUM(umsatz) GROUP BY filiale")
-```
+Lower context sensitivity tasks:
+- Single-file edits
+- Independent utility creation
+- Documentation updates
+- Simple bug fixes
 
-### Memory
-```python
-# Use generators for large datasets
-def read_large_file(path):
-    with open(path) as f:
-        for line in f:  # generator, not list
-            yield process(line)
-```
+## Extended Thinking + Plan Mode
 
-## Caching
+Extended thinking is enabled by default, reserving up to 31,999 tokens for internal reasoning.
 
-```python
-from functools import lru_cache
+Control extended thinking via:
+- **Toggle**: Option+T (macOS) / Alt+T (Windows/Linux)
+- **Config**: Set `alwaysThinkingEnabled` in `~/.claude/settings.json`
+- **Budget cap**: `export MAX_THINKING_TOKENS=10000` (bash) or `$env:MAX_THINKING_TOKENS = "10000"` (PowerShell)
+- **Verbose mode**: Ctrl+O to see thinking output
 
-@lru_cache(maxsize=128)
-def expensive_computation(param: int) -> int:
-    ...
-```
+For complex tasks requiring deep reasoning:
+1. Ensure extended thinking is enabled (on by default)
+2. Enable **Plan Mode** for structured approach
+3. Use multiple critique rounds for thorough analysis
+4. Use split role sub-agents for diverse perspectives
 
-## Profiling
+## Build Troubleshooting
 
-```bash
-python -m cProfile -s cumulative script.py | head -20
-```
-
-## Targets
-
-- UI interactions: <200ms
-- DB queries: <100ms  
-- File imports: progress bar if >2s
-- Export generation: <5s for typical dataset
+If build fails:
+1. Use **build-error-resolver** agent
+2. Analyze error messages
+3. Fix incrementally
+4. Verify after each fix

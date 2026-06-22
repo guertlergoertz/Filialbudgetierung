@@ -1,24 +1,24 @@
 # Git Workflow
 
-## Commit Messages
-
+## Commit Message Format
 ```
-<type>(<scope>): <description>
+<type>: <description>
 
-[optional body]
-[optional footer]
+<optional body>
 ```
 
-Types: `feat` | `fix` | `refactor` | `test` | `docs` | `chore`
+Types: feat, fix, refactor, docs, test, chore, perf, ci
 
-## Branch Strategy
+Note: Attribution disabled globally via ~/.claude/settings.json.
 
-- `master` / `main`: production-ready
-- `feat/<name>`: new features
-- `fix/<name>`: bug fixes
+## Pull Request Workflow
 
-## PR Rules
+When creating PRs:
+1. Analyze full commit history (not just latest commit)
+2. Use `git diff [base-branch]...HEAD` to see all changes
+3. Draft comprehensive PR summary
+4. Include test plan with TODOs
+5. Push with `-u` flag if new branch
 
-- One concern per PR
-- Tests must pass
-- Self-review before requesting review
+> For the full development process (planning, TDD, code review) before git operations,
+> see [development-workflow.md](./development-workflow.md).

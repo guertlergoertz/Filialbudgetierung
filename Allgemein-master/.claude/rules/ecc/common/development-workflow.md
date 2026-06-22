@@ -1,59 +1,44 @@
 # Development Workflow
 
-## Before Starting Any Task
+> This file extends [common/git-workflow.md](./git-workflow.md) with the full feature development process that happens before git operations.
 
-1. **Understand the requirement** – ask if unclear
-2. **Check existing code** – search before creating
-3. **Plan before coding** – outline approach for complex tasks
-4. **Identify test cases** – what does done look like?
+The Feature Implementation Workflow describes the development pipeline: research, planning, TDD, code review, and then committing to git.
 
-## Implementation Loop
+## Feature Implementation Workflow
 
-```
-Write failing test → Implement → Pass test → Refactor → Commit
-```
+0. **Research & Reuse** _(mandatory before any new implementation)_
+   - **GitHub code search first:** Run `gh search repos` and `gh search code` to find existing implementations, templates, and patterns before writing anything new.
+   - **Library docs second:** Use Context7 or primary vendor docs to confirm API behavior, package usage, and version-specific details before implementing.
+   - **Exa only when the first two are insufficient:** Use Exa for broader web research or discovery after GitHub search and primary docs.
+   - **Check package registries:** Search npm, PyPI, crates.io, and other registries before writing utility code. Prefer battle-tested libraries over hand-rolled solutions.
+   - **Search for adaptable implementations:** Look for open-source projects that solve 80%+ of the problem and can be forked, ported, or wrapped.
+   - Prefer adopting or porting a proven approach over writing net-new code when it meets the requirement.
 
-For bug fixes:
-```
-Reproduce bug → Write failing test → Fix → Pass test → Commit
-```
+1. **Plan First**
+   - Use **planner** agent to create implementation plan
+   - Generate planning docs before coding: PRD, architecture, system_design, tech_doc, task_list
+   - Identify dependencies and risks
+   - Break down into phases
 
-## Code Quality Gates
+2. **TDD Approach**
+   - Use **tdd-guide** agent
+   - Write tests first (RED)
+   - Implement to pass tests (GREEN)
+   - Refactor (IMPROVE)
+   - Verify 80%+ coverage
 
-Before marking any task done:
-- [ ] All tests pass
-- [ ] No linter errors
-- [ ] No debug/temp code left
-- [ ] Docs updated if behavior changed
-- [ ] Commit message is descriptive
+3. **Code Review**
+   - Use **code-reviewer** agent immediately after writing code
+   - Address CRITICAL and HIGH issues
+   - Fix MEDIUM issues when possible
 
-## Handling Uncertainty
+4. **Commit & Push**
+   - Detailed commit messages
+   - Follow conventional commits format
+   - See [git-workflow.md](./git-workflow.md) for commit message format and PR process
 
-**When you’re unsure:**
-1. State your uncertainty explicitly
-2. Propose the safest approach
-3. Ask for confirmation before destructive operations
-
-**Never:**
-- Guess at requirements and implement anyway
-- Make breaking changes without flagging them
-- Delete data/files without explicit instruction
-
-## Stuck? Escalation Path
-
-1. Re-read requirements
-2. Check existing similar code in codebase
-3. Search documentation
-4. State the blocker clearly and ask for help
-
-## Task Completion Checklist
-
-```
-[ ] Feature works as specified
-[ ] Edge cases handled
-[ ] Tests written and passing
-[ ] No regressions (existing tests still pass)
-[ ] Code reviewed (self-review at minimum)
-[ ] Changes committed with good message
-[ ] PR/issue updated if applicable
-```
+5. **Pre-Review Checks**
+   - Verify all automated checks (CI/CD) are passing
+   - Resolve any merge conflicts
+   - Ensure branch is up to date with target branch
+   - Only request review after these checks pass

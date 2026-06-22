@@ -1,34 +1,30 @@
-# Claude Code Hooks
+# Hooks System
 
-## Available Hook Points
+## Hook Types
 
-- `PreToolUse`: Before any tool call
-- `PostToolUse`: After any tool call  
-- `Notification`: On idle/notification events
-- `Stop`: When Claude finishes responding
+- **PreToolUse**: Before tool execution (validation, parameter modification)
+- **PostToolUse**: After tool execution (auto-format, checks)
+- **Stop**: When session ends (final verification)
 
-## Hook Best Practices
+## Auto-Accept Permissions
 
-- Keep hooks fast (<2s)
-- Exit 0 for success, non-zero to block
-- Use `stderr` for user-visible messages
-- Log to files for debugging
+Use with caution:
+- Enable for trusted, well-defined plans
+- Disable for exploratory work
+- Never use dangerously-skip-permissions flag
+- Configure `allowedTools` in `~/.claude.json` instead
 
-## Common Hook Patterns
+## TodoWrite Best Practices
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [{
-      "matcher": "Bash",
-      "hooks": [{"type": "command", "command": "validate_bash.sh"}]
-    }]
-  }
-}
-```
+Use TodoWrite tool to:
+- Track progress on multi-step tasks
+- Verify understanding of instructions
+- Enable real-time steering
+- Show granular implementation steps
 
-## Anti-Patterns
-
-- Blocking hooks that wait for user input
-- Hooks that modify Claude’s output
-- Long-running hooks without timeouts
+Todo list reveals:
+- Out of order steps
+- Missing items
+- Extra unnecessary items
+- Wrong granularity
+- Misinterpreted requirements
