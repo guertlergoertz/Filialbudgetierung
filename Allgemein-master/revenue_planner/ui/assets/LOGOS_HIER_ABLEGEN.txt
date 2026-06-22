@@ -1,0 +1,2 @@
+Legen Sie hier Logo-Dateien ab (PNG, SVG).
+Beispiel: goertz_logo.png, papperts_logo.png
