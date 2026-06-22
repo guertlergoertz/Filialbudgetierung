@@ -14,15 +14,13 @@ st.set_page_config(
     menu_items={},
 )
 
-# Ladeindikator: Streamlits nativer Status-Indikator (oben rechts) wird sichtbar
-# gelassen. Ein früherer Versuch mit einer per st.markdown injizierten Brezel-
-# Animation funktionierte nicht, da Streamlit eingebettete <script>-Tags nicht
-# ausführt — der MutationObserver wurde nie registriert. Schwere Operationen
-# zeigen zusätzlich einen inline st.spinner() ("Berechne…").
 st.markdown("""
 <style>
 /* Nativen Ladeindikator hervorheben (etwas größer, gut sichtbar) */
 [data-testid="stStatusWidget"] { transform: scale(1.15); }
+/* Sidebar View-less/View-more Buttons ausblenden */
+button[aria-label="View less"],
+button[aria-label="View more"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -120,7 +118,7 @@ else:
             )
             st.divider()
 
-# ── Sidebar: Firma / Budgetjahr / Basiszeitraum ────────────────────────────
+# ── Sidebar: Firma / Budgetjahr / Basiszeitraum ───────────────────────────────────────────────────
 from ui.session import get_gmbh as _get_gmbh, get_budgetjahr as _get_bj
 
 _gmbh = _get_gmbh()
@@ -158,7 +156,7 @@ with st.sidebar:
         )
         st.divider()
 
-# ── Navigation ─────────────────────────────────────────────────────────────
+# ── Navigation ─────────────────────────────────────────────────────────────────────────────────
 pages = st.navigation({
     " ": [
         st.Page(str(BASE / "ui/pages/1_Startseite.py"),
