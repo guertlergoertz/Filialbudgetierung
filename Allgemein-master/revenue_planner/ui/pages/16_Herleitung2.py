@@ -142,8 +142,8 @@ if df_all.empty:
     st.info("Keine berechneten Planungsdaten vorhanden.")
     st.stop()
 
-eff_cols = ["ist_vj", "eff_oeffnung", "eff_wochentag",
-            "eff_preis", "eff_ferien", "eff_feiertag", "eff_validierung", "budget"]
+eff_cols = ["ist_vj", "eff_oeffnung", "eff_verteilung", "eff_norm",
+            "eff_wochentag", "eff_preis", "eff_ferien", "eff_feiertag", "eff_validierung", "budget"]
 
 # ── Filter ─────────────────────────────────────────────────────────────────────────────────
 cf1, cf2 = st.columns(2)
@@ -366,6 +366,7 @@ agg["Abw. %"] = agg.apply(
 rename = {
     "fil_nr": "Filiale", "bundesland": "Bundesland",
     "ist_vj": "IST Basis", "eff_oeffnung": "+ Öffnung",
+    "eff_verteilung": "+ Verteilung",
     "eff_wochentag": "+ Wochentag", "eff_preis": "+ Preis", "eff_ferien": "+ Ferien",
     "eff_feiertag": "+ Feiertag", "eff_validierung": "+ Validierung",
     "budget": "= Budget",
@@ -378,7 +379,10 @@ if zeit_ebene == "Tag":
     rename["_tagesinfo"] = "Tagesinfo"
     rename["ferien_art"] = "Ferien"
 
-drop_cols = ["_sort", "eff_norm", "eff_verteilung", "_budget_for_ist", "_iso", "_daytype"] + [
+# eff_norm (hidden per rule) wird in eff_verteilung eingerechnet, damit die angezeigte Summe = Budget
+agg["eff_verteilung"] = agg["eff_verteilung"].fillna(0) + agg["eff_norm"].fillna(0)
+
+drop_cols = ["_sort", "eff_norm", "_budget_for_ist", "_iso", "_daytype"] + [
     c for c in ["wochentag", "tagestyp", "feiertag_name"] if c in agg.columns and zeit_ebene == "Tag"
 ]
 if zeit_ebene != "Tag":
@@ -391,7 +395,7 @@ if zeit_ebene == "Tag":
 else:
     lead = [c for c in ["Filiale", "Bundesland", "Zeit"] if c in disp.columns]
 
-ordered = lead + ["IST Basis", "+ Öffnung", "+ Wochentag", "+ Preis",
+ordered = lead + ["IST Basis", "+ Öffnung", "+ Verteilung", "+ Wochentag", "+ Preis",
                   "+ Ferien", "+ Feiertag", "+ Validierung", "= Budget",
                   "= IST", "Abw. €", "Abw. %"]
 disp = disp[[c for c in ordered if c in disp.columns]]
@@ -425,7 +429,7 @@ st.caption(
 st.divider()
 
 # ── Tabelle ───────────────────────────────────────────────────────────────────────────────────
-num_cols = ["IST Basis", "+ Öffnung", "+ Wochentag", "+ Preis",
+num_cols = ["IST Basis", "+ Öffnung", "+ Verteilung", "+ Wochentag", "+ Preis",
             "+ Ferien", "+ Feiertag", "+ Validierung", "= Budget", "= IST", "Abw. €"]
 
 def _fmt_de(val):
@@ -469,8 +473,10 @@ col_cfg = {
         help="Referenztag aus dem Basiszeitraum, dessen IST-Umsatz als Grundlage dient"),
     "IST Basis":      st.column_config.TextColumn("IST Basis",
         help="Tagesumsatz des Basiszeitraum-Referenztags (via Datumsmapping)"),
-    "+ Öffnung":     st.column_config.TextColumn("+ Öffnung",
+    "+ Öffnung":      st.column_config.TextColumn("+ Öffnung",
         help="Effekt geschlossener Tage (geschlossen → −IST Basis)"),
+    "+ Verteilung":   st.column_config.TextColumn("+ Verteilung",
+        help="Tagesverteilung: Anteil des Tages am Monatsumsatz (inkl. Normalisierungskorrektur)"),
     "+ Wochentag":    st.column_config.TextColumn("+ Wochentag",
         help="Wochentags-Konstellationseffekt: andere Mo…So-Verteilung im Planjahr"),
     "+ Preis":        st.column_config.TextColumn("+ Preis",
@@ -531,9 +537,9 @@ with st.expander("📖 Legende — Berechnungslogik 2", expanded=True):
 4. **Sondertage/Feiertage/Ferien:** wirken als Auf-/Abschlag und verschieben den
    Monatsumsatz nur dann zwischen Monaten, wenn der Tag im Budgetjahr in einen
    anderen Monat fällt als im Basisjahr (**+ Feiertag** / **+ Ferien**).
-5. **Verteilung auf Tage:** der fertige Monatsumsatz wird über die Anteile der
-   via Datumsmapping bestimmten Basistage am Basismonatsumsatz auf die einzelnen
-   Tage verteilt.
+5. **Verteilung auf Tage (**+ Verteilung**):** der fertige Monatsumsatz wird über die Anteile
+   der via Datumsmapping bestimmten Basistage am Basismonatsumsatz auf die einzelnen Tage
+   verteilt. Enthält auch die Normalisierungskorrektur, damit Monatssummen exakt stimmen.
 6. **Wochentagsvalidierung:** Nach der Berechnung wird geprüft, ob einzelne Tage
    (Summe **IST Basis** über alle Filialen) um mehr als ±10 % vom Wochentagsschnitt
    der umliegenden Monate abweichen. Ausgeschlossen werden dabei Feiertage,
@@ -544,7 +550,7 @@ with st.expander("📖 Legende — Berechnungslogik 2", expanded=True):
    Dreisatz proportional auf alle Filialen verteilt (**+ Validierung**).
 
 ```
-Budget = IST Basis + Öffnung + Wochentag + Preis + Ferien + Feiertag + Validierung
+Budget = IST Basis + Öffnung + Verteilung + Wochentag + Preis + Ferien + Feiertag + Validierung
 ```
 
 Diese Zerlegung addiert sich durch einfache Summation auf jede Zeit- und
