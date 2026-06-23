@@ -244,11 +244,41 @@ if entity_ebene == "Filiale":
 elif entity_ebene == "Bundesland":
     group_keys = ["bundesland"] + group_keys
 
+# Ferien-Anreicherung vor Groupby (pro Rohzeile mit bekanntem Bundesland):
+# Füllt ferien_art auch für Feiertage/Feiertagstage, die in einer Ferienperiode liegen.
+# Ermöglicht anschließend korrekte Gesamt-Aggregation über alle Bundesländer.
+_fk_index: dict[str, list] = {}
+for _r in _ferien_kal_rows:
+    _fk_index.setdefault(_r["bundesland"], []).append(_r)
+
+def _get_ferien_for_date(iso: str, bl: str) -> str:
+    try:
+        d = pd.Timestamp(iso).date()
+    except Exception:
+        return ""
+    for _r in _fk_index.get(bl, []):
+        try:
+            if pd.Timestamp(_r["start"]).date() <= d <= pd.Timestamp(_r["ende"]).date():
+                return _r["art"]
+        except Exception:
+            pass
+    return ""
+
+def _enrich_ferien_row(row):
+    existing = str(row.get("ferien_art") or "")
+    if existing:
+        return existing
+    return _get_ferien_for_date(str(row.get("_iso") or ""), str(row.get("bundesland") or ""))
+
+df_all["ferien_art"] = df_all.apply(_enrich_ferien_row, axis=1)
+
 extra_agg: dict = {}
 if zeit_ebene == "Tag":
-    for c in ["wochentag", "tagestyp", "feiertag_name", "ferien_art", "_iso"]:
+    for c in ["wochentag", "tagestyp", "feiertag_name", "_iso"]:
         if c in df_all.columns:
             extra_agg[c] = "first"
+    if "ferien_art" in df_all.columns:
+        extra_agg["ferien_art"] = lambda x: ", ".join(sorted({v for v in x if v}))
     if entity_ebene == "Filiale" and "bundesland" in df_all.columns:
         extra_agg["bundesland"] = "first"
 
@@ -541,7 +571,7 @@ with st.expander("📖 Legende — Berechnungslogik 2", expanded=True):
    der via Datumsmapping bestimmten Basistage am Basismonatsumsatz auf die einzelnen Tage
    verteilt. Enthält auch die Normalisierungskorrektur, damit Monatssummen exakt stimmen.
 6. **Wochentagsvalidierung:** Nach der Berechnung wird geprüft, ob einzelne Tage
-   (Summe **IST Basis** über alle Filialen) um mehr als ±10 % vom Wochentagsschnitt
+   (Summe **IST Basis** über alle Filialen) um mehr als ±8 % vom Wochentagsschnitt
    der umliegenden Monate abweichen. Ausgeschlossen werden dabei Feiertage,
    Feiertagstage, Sondertage und Ferien — sowohl im Planjahr als auch Tage, deren
    Vorjahres-Referenzdatum im Datumsmapping ein Sonder-/Feiertagstag war (z. B.

@@ -5,7 +5,7 @@ import sqlite3
 
 import pandas as pd
 
-SCHWELLWERT_PCT = 10.0
+SCHWELLWERT_PCT = 8.0
 WOCHENTAG_NAMEN = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
 
 
