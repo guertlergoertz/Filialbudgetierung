@@ -571,7 +571,7 @@ with st.expander("📖 Legende — Berechnungslogik 2", expanded=True):
    der via Datumsmapping bestimmten Basistage am Basismonatsumsatz auf die einzelnen Tage
    verteilt. Enthält auch die Normalisierungskorrektur, damit Monatssummen exakt stimmen.
 6. **Wochentagsvalidierung:** Nach der Berechnung wird geprüft, ob einzelne Tage
-   (Summe **IST Basis** über alle Filialen) um mehr als ±8 % vom Wochentagsschnitt
+   (Summe **Budget** über alle Filialen) um mehr als ±10 % vom Wochentagsschnitt
    der umliegenden Monate abweichen. Ausgeschlossen werden dabei Feiertage,
    Feiertagstage, Sondertage und Ferien — sowohl im Planjahr als auch Tage, deren
    Vorjahres-Referenzdatum im Datumsmapping ein Sonder-/Feiertagstag war (z. B.

@@ -5,7 +5,7 @@ import sqlite3
 
 import pandas as pd
 
-SCHWELLWERT_PCT = 8.0
+SCHWELLWERT_PCT = 10.0
 WOCHENTAG_NAMEN = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
 
 
@@ -14,7 +14,7 @@ def validiere_und_korrigiere_planwerte2(
     plan_jahr: int,
 ) -> pd.DataFrame:
     """
-    Vergleicht den Tages-IST-Basis-Gesamtumsatz (Summe ist_vj aller Filialen)
+    Vergleicht den Tages-Budget-Gesamtumsatz (Summe budget aller Filialen)
     je Wochentag mit den umliegenden Monaten (M-1, M, M+1).
 
     Ausgeschlossen werden:
@@ -25,14 +25,14 @@ def validiere_und_korrigiere_planwerte2(
       nach Ostermontag, dessen IST-Basis aus dem entsprechenden Feiertagstag
       des Vorjahres stammt
 
-    Weicht ein Tag um mehr als ±10 % vom IST-Basis-Wochentagsschnitt ab, wird
+    Weicht ein Tag um mehr als ±10 % vom Budget-Wochentagsschnitt ab, wird
     das Budget via eff_validierung auf den Schnittfaktor korrigiert und per
     Dreisatz proportional auf alle Filialen verteilt.
     """
-    # Tages-IST-Basis-Gesamtumsatz über alle Filialen (nur offene Tage)
+    # Tages-Budget-Gesamtumsatz über alle Filialen (nur offene Tage)
     rows = conn.execute("""
         SELECT datum,
-               SUM(ist_vj)                                    AS tages_ist,
+               SUM(budget)                                     AS tages_ist,
                MAX(wochentag)                                  AS wochentag,
                CAST(strftime('%m', datum) AS INTEGER)          AS monat
         FROM planung2
@@ -125,7 +125,7 @@ def validiere_und_korrigiere_planwerte2(
     korr_df = pd.DataFrame(korrekturen)
 
     # Korrekturen per Dreisatz auf Filialen herunterrechnen.
-    # Faktor aus IST-Basis-Abweichung, angewendet auf budget via eff_validierung.
+    # Faktor aus Budget-Abweichung, angewendet auf budget via eff_validierung.
     # SQLite evaluiert alle SET-Ausdrücke mit den alten Spaltenwerten (atomic update).
     for _, korr in korr_df.iterrows():
         d = korr["datum"]
