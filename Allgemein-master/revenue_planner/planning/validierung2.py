@@ -14,23 +14,27 @@ def validiere_und_korrigiere_planwerte2(
     plan_jahr: int,
 ) -> pd.DataFrame:
     """
-    Vergleicht Tagesgesamtumsatz (Summe aller Filialen) je Wochentag mit den
-    umliegenden Monaten (M-1, M, M+1). Sondertage, Feiertage, Feiertagstage
-    und Ferien werden vollständig ausgeschlossen.
+    Vergleicht den Tages-IST-Basis-Gesamtumsatz (Summe ist_vj aller Filialen)
+    je Wochentag mit den umliegenden Monaten (M-1, M, M+1).
 
-    Weicht ein Tag um mehr als ±10 % vom Wochentagsschnitt ab, wird der
-    Gesamtumsatz auf den Schnitt korrigiert und per Dreisatz proportional
-    auf alle Filialen verteilt (eff_validierung = Delta, budget = neuer Wert).
+    Ausgeschlossen werden:
+    - Tage, deren tagestyp im Planjahr ein Sonder-/Feiertagstyp ist
+      (feiertag, feiertagstag, sondertag, ferien)
+    - Tage, deren Basis-Datum laut Datumsmapping ein Sonder-/Feiertagstag war
+      (mapping_art IN feiertag, feiertagstag, sondertag) — z. B. der Dienstag
+      nach Ostermontag, dessen IST-Basis aus dem entsprechenden Feiertagstag
+      des Vorjahres stammt
 
-    Returns:
-        DataFrame mit Korrekturprotokoll für Herleitung (L2).
+    Weicht ein Tag um mehr als ±10 % vom IST-Basis-Wochentagsschnitt ab, wird
+    das Budget via eff_validierung auf den Schnittfaktor korrigiert und per
+    Dreisatz proportional auf alle Filialen verteilt.
     """
-    # Tagesgesamtumsatz über alle Filialen (nur offene Tage)
+    # Tages-IST-Basis-Gesamtumsatz über alle Filialen (nur offene Tage)
     rows = conn.execute("""
         SELECT datum,
-               SUM(budget)                                   AS tages_budget,
-               MAX(wochentag)                                AS wochentag,
-               CAST(strftime('%m', datum) AS INTEGER)        AS monat
+               SUM(ist_vj)                                    AS tages_ist,
+               MAX(wochentag)                                  AS wochentag,
+               CAST(strftime('%m', datum) AS INTEGER)          AS monat
         FROM planung2
         WHERE CAST(strftime('%Y', datum) AS INTEGER) = ?
           AND tagestyp != 'geschlossen'
@@ -41,11 +45,22 @@ def validiere_und_korrigiere_planwerte2(
     if not rows:
         return pd.DataFrame()
 
-    # Tage mit Sondertagen / Feiertagen / Ferien — für Vergleich ausschließen
+    # Ausschlusstage:
+    # 1) Plan-Jahr-Tagestyp ist sonder-/feiertagsartig
+    # 2) Basis-Datum im Datumsmapping war ein Sonder-/Feiertagstag
+    #    (mapping_art zeigt den Charakter des Vorjahres-Referenztags)
     ausschluss_rows = conn.execute("""
-        SELECT DISTINCT datum FROM planung2
-        WHERE CAST(strftime('%Y', datum) AS INTEGER) = ?
-          AND tagestyp IN ('feiertag', 'feiertagstag', 'sondertag', 'ferien')
+        SELECT DISTINCT p.datum
+        FROM planung2 p
+        WHERE CAST(strftime('%Y', p.datum) AS INTEGER) = ?
+          AND (
+            p.tagestyp IN ('feiertag', 'feiertagstag', 'sondertag', 'ferien')
+            OR EXISTS (
+                SELECT 1 FROM datumsmapping dm
+                WHERE dm.plan_datum = p.datum
+                  AND dm.mapping_art IN ('feiertag', 'feiertagstag', 'sondertag')
+            )
+          )
     """, (plan_jahr,)).fetchall()
     ausschluss: set[str] = {r[0] for r in ausschluss_rows}
 
@@ -109,8 +124,9 @@ def validiere_und_korrigiere_planwerte2(
 
     korr_df = pd.DataFrame(korrekturen)
 
-    # Korrekturen per Dreisatz auf Filialen herunterrechnen
-    # SQLite evaluiert alle SET-Ausdrücke mit den alten Spaltenwerten (atomic update)
+    # Korrekturen per Dreisatz auf Filialen herunterrechnen.
+    # Faktor aus IST-Basis-Abweichung, angewendet auf budget via eff_validierung.
+    # SQLite evaluiert alle SET-Ausdrücke mit den alten Spaltenwerten (atomic update).
     for _, korr in korr_df.iterrows():
         d = korr["datum"]
         original = korr["original_gesamt"]

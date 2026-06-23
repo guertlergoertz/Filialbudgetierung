@@ -480,7 +480,7 @@ col_cfg = {
     "+ Feiertag":     st.column_config.TextColumn("+ Feiertag",
         help="Feiertag-/Sondertag-Monatsverschiebung (z. B. Muttertag Mai → April)"),
     "+ Validierung":  st.column_config.TextColumn("+ Validierung",
-        help="Wochentagsvalidierung: Korrektur auf Wochentagsschnitt (0 = kein Ausreißer)"),
+        help="Wochentagsvalidierung: Korrektur auf IST-Basis-Wochentagsschnitt (0 = kein Ausreißer)"),
     "= Budget":       st.column_config.TextColumn("= Budget",
         help="Tagesbudget = IST Basis + alle Effekte inkl. Validierung"),
     "= IST":          st.column_config.TextColumn("= IST",
@@ -534,10 +534,14 @@ with st.expander("📖 Legende — Berechnungslogik 2", expanded=True):
 5. **Verteilung auf Tage:** der fertige Monatsumsatz wird über die Anteile der
    via Datumsmapping bestimmten Basistage am Basismonatsumsatz auf die einzelnen
    Tage verteilt.
-6. **Wochentagsvalidierung (⭐ neu):** Nach der Berechnung wird geprüft, ob einzelne
-   Tage (Summe über alle Filialen) um mehr als ±10 % vom Wochentagsschnitt der
-   umliegenden Monate abweichen. Ausreißer werden auf den Schnitt korrigiert,
-   die Korrektur per Dreisatz auf die Filialen verteilt (**+ Validierung**).
+6. **Wochentagsvalidierung:** Nach der Berechnung wird geprüft, ob einzelne Tage
+   (Summe **IST Basis** über alle Filialen) um mehr als ±10 % vom Wochentagsschnitt
+   der umliegenden Monate abweichen. Ausgeschlossen werden dabei Feiertage,
+   Feiertagstage, Sondertage und Ferien — sowohl im Planjahr als auch Tage, deren
+   Vorjahres-Referenzdatum im Datumsmapping ein Sonder-/Feiertagstag war (z. B.
+   ein Dienstag, dessen IST-Basis aus dem Dienstag nach Ostermontag stammt).
+   Ausreißer werden auf den Wochentagsschnitt korrigiert, die Korrektur per
+   Dreisatz proportional auf alle Filialen verteilt (**+ Validierung**).
 
 ```
 Budget = IST Basis + Öffnung + Wochentag + Preis + Ferien + Feiertag + Validierung
