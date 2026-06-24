@@ -42,14 +42,20 @@ params = PlanParams(
 
 MONATE_S = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"]
 
-all_filialen = [r["fil_nr"] for r in
-                conn.execute(
-                    "SELECT fil_nr FROM filialen "
-                    "WHERE COALESCE(flag_inaktiv,0)=0 AND COALESCE(flag_gesperrt,0)=0 "
-                    "AND (eroeffnung_ende IS NULL OR eroeffnung_ende >= ?) "
-                    "ORDER BY fil_nr",
-                    (f"{planjahr}-01-01",)
-                ).fetchall()]
+import re as _re_fil
+
+_fil_rows = conn.execute(
+    "SELECT fil_nr, bezeichnung FROM filialen "
+    "WHERE COALESCE(flag_inaktiv,0)=0 AND COALESCE(flag_gesperrt,0)=0 "
+    "AND (eroeffnung_ende IS NULL OR eroeffnung_ende >= ?) "
+    "ORDER BY fil_nr",
+    (f"{planjahr}-01-01",)
+).fetchall()
+all_filialen = [
+    r["fil_nr"] for r in _fil_rows
+    if not _re_fil.search(r'X{2,}', str(r["bezeichnung"] or ""), _re_fil.IGNORECASE)
+]
+_active_fil_set = set(all_filialen)
 
 run_mode = st.radio("Ausführen für", ["Alle Filialen", "Auswahl"])
 if run_mode == "Auswahl":
@@ -180,6 +186,7 @@ if _use_fresh or _db_df is not None:
         df = pd.DataFrame([
             {"fil_nr": r.fil_nr, "monat": r.datum.month, "budget": r.budget, "ist_vj": r.ist_vj}
             for r in results
+            if r.fil_nr in _active_fil_set
         ])
     else:
         df = _db_df
