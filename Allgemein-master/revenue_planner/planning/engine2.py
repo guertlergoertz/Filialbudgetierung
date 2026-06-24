@@ -484,11 +484,11 @@ class PlanningEngine2:
                 normalisierung=0.0,
             )
 
-        # Tagesanteil am Monat (offene Tage). Kein Basis-IST → Budget 0.
+        # Tagesanteil am Monat (offene Tage). Kein direktes Basis-IST → gleichverteilt.
         if s > 0:
             w = m["base_ist"] / s
         else:
-            w = 0.0
+            w = (1.0 / n_open) if n_open else 0.0
 
         budget = round(w * _m3, 2)
         eff_verteilung = round(w * _m0 - ist_vj, 2)
