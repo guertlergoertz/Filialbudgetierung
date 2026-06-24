@@ -309,7 +309,8 @@ class PlanningEngine2:
     def plan_branch(self, fil_nr: str,
                     ref_day_budgets: dict[str, float] | None = None,
                     wt_shares: dict[int, float] | None = None,
-                    new_effective_start: date | None = None) -> list[DayPlan]:
+                    new_effective_start: date | None = None,
+                    first_full_month_start: date | None = None) -> list[DayPlan]:
         e = self.e
         fil = self.filialen.get(fil_nr, {"bundesland": "RP"})
         bl = _normalize_bl(fil.get("bundesland", "RP") or "RP")
@@ -415,10 +416,14 @@ class PlanningEngine2:
             for m in metas:
                 imputed_budget: float | None = None
                 if (ref_day_budgets is not None and wt_shares is not None
-                        and new_effective_start is not None
+                        and first_full_month_start is not None
                         and not m["closed"]):
                     base_d = m.get("base_d")
-                    if base_d is None or base_d < new_effective_start:
+                    # Impute entire months before the first month the branch was fully open.
+                    # first_full_month_start = first day of the month after effective_start's month,
+                    # so the opening month itself (and any month the 14-day window bleeds into)
+                    # is fully imputed rather than mixed with partial IST.
+                    if base_d is None or base_d.replace(day=1) < first_full_month_start:
                         ref_total = ref_day_budgets.get(m["d"].isoformat(), 0.0)
                         eff_wt = 6 if m["tagestyp"] == "feiertag" else m["wt"]
                         imputed_budget = round(ref_total * wt_shares.get(eff_wt, 0.0), 2)
@@ -537,18 +542,38 @@ class PlanningEngine2:
             shares = self._wt_shares_new(fil_nr, eff_start, ref_set)
             new_branch_info[fil_nr] = (eff_start, ref_set, shares)
 
-        # Pass 1: calculate all non-new branches; collect results for ref lookups
+        # Pass 1: calculate all non-new branches; collect results for ref lookups.
+        # Skip branches with no actual IST in the last base month (e.g. closed mid-period):
+        # _base_month_ist would extrapolate phantom values, leading to ghost budgets.
+        # Plan-year-new branches (eroeffnung in plan year) are exempted — they use neue_plan.
+        e = self.e
+        by, bm = e.base_end_year, e.base_end_month
+        plan_year = self.p.planjahr
+
         out: list[DayPlan] = []
         ref_results: dict[str, list[DayPlan]] = {}
         for fil_nr in active:
             if fil_nr in new_fil_nrs:
                 continue
+            fil = self.filialen.get(fil_nr, {})
+            eroeff_str = fil.get("eroeffnung")
+            is_plan_year_new = bool(eroeff_str and date.fromisoformat(eroeff_str).year == plan_year)
+            if not is_plan_year_new:
+                df = e._branch_base_ist(fil_nr)
+                last_ist = df[(df["datum"].dt.year == by) & (df["datum"].dt.month == bm)]["umsatz"].sum()
+                if last_ist <= 0:
+                    continue  # closed/inactive in last base month → no budget
             branch_results = self.plan_branch(fil_nr)
             out.extend(branch_results)
             ref_results[fil_nr] = branch_results
 
-        # Pass 2: calculate new-base branches using ref budgets per plan day
+        # Pass 2: calculate new-base branches using ref budgets per plan day.
+        # first_full_month_start: first calendar month the branch was fully open in the base period.
+        # = month after the month containing effective_start (so opening month + any bleed-over
+        #   from the 14-day exclusion are fully imputed, not just partially).
         for fil_nr, (eff_start, ref_set, shares) in new_branch_info.items():
+            nxt = eff_start.month + 1
+            ffm = date(eff_start.year + (nxt - 1) // 12, (nxt - 1) % 12 + 1, 1)
             ref_day_budgets: dict[str, float] = {}
             for ref_fil in ref_set:
                 for dp in ref_results.get(ref_fil, []):
@@ -559,6 +584,7 @@ class PlanningEngine2:
                 ref_day_budgets=ref_day_budgets,
                 wt_shares=shares,
                 new_effective_start=eff_start,
+                first_full_month_start=ffm,
             )
             out.extend(branch_results)
 
