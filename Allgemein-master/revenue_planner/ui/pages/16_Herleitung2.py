@@ -41,6 +41,16 @@ with st.expander("📖 Legende — Berechnungslogik 2", expanded=False):
 5. **Verteilung auf Tage (**+ Verteilung**):** der fertige Monatsumsatz wird über die Anteile
    der via Datumsmapping bestimmten Basistage am Basismonatsumsatz auf die einzelnen Tage
    verteilt. Enthält auch die Normalisierungskorrektur, damit Monatssummen exakt stimmen.
+   **Neueröffnungen im Basiszeitraum:** Filialen, die erst während des Basiszeitraums
+   eröffneten (und im letzten Monat des Basiszeitraums Umsätze hatten), werden für die
+   Budgetierung der noch fehlenden Tage wie folgt hochgerechnet:
+   die ersten 14 Tage nach Eröffnung werden ausgeschlossen; verbleiben danach weniger als
+   3 Wochen Daten, wird die Filiale nicht hochgerechnet.
+   Ansonsten wird je Wochentag der Umsatzanteil der neuen Filiale an allen Referenzfilialen
+   (= Filialen, die in jedem Monat des Auswertungszeitraums vollständig geöffnet waren)
+   berechnet. Für fehlende Budgettage ergibt sich das Budget dann aus:
+   *Summe Budget Referenzfilialen an diesem Budgettag × Wochentagsanteil der neuen Filiale.*
+   Feiertage (nicht Feiertagstage) werden dabei mit dem Sonntagsanteil bewertet.
 6. **Wochentagsvalidierung:** Nach der Berechnung wird geprüft, ob einzelne Tage
    (Summe **Budget** über alle Filialen) um mehr als ±10 % vom Wochentagsschnitt
    der umliegenden Monate abweichen. Ausgeschlossen werden dabei Feiertage,
