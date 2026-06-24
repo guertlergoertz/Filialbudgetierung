@@ -20,11 +20,9 @@ st.caption(
     "`+`-Spalten zeigen die additiven Effekte bis zum Tagesbudget."
 )
 
-# Platzhalter für Download-Button — wird nach Tabellenaufbau befüllt (unterhalb der Tabelle)
-
-# ── Legende (immer sichtbar, unabhängig vom Ladezustand) ───────────────────────────────────
-with st.expander("📖 Legende — Berechnungslogik 2", expanded=False):
-    st.markdown("""
+def _render_legende():
+    with st.expander("📖 Legende — Berechnungslogik 2", expanded=False):
+        st.markdown("""
 ### Vorgehen Logik 2 (Monatsumsatz-basiert)
 
 1. **Ausgangspunkt:** Monatsumsatz des Basiszeitraums (Vorjahr) je Monat.
@@ -66,8 +64,6 @@ Diese Zerlegung addiert sich durch einfache Summation auf jede Zeit- und
 Aggregationsebene (Woche / Monat / Jahr, Filiale / Bundesland / Gesamt).
 """)
 
-st.divider()
-
 # ── Daten laden (gecacht in session_state je GmbH + Planjahr) ──────────────────────────────
 _cache_key = f"herleitung2_data_{gmbh}_{planjahr}"
 
@@ -85,6 +81,7 @@ if _cache_key not in st.session_state:
             f"Noch keine Planungsdaten (Logik 2) für {planjahr} vorhanden. "
             "Bitte zuerst unter **Planung ausführen — Logik 2** eine Berechnung starten."
         )
+        _render_legende()
         st.stop()
 
     with st.spinner("Planungsdaten werden geladen…"):
@@ -176,6 +173,7 @@ if _cache_key not in st.session_state:
     st.rerun()
 
 if _cache_key not in st.session_state:
+    _render_legende()
     st.stop()
 
 _cached = st.session_state[_cache_key]
@@ -188,6 +186,7 @@ _col_hint.caption(f"{len(df_all):,} Planzeilen geladen · {df_all['fil_nr'].nuni
 
 if df_all.empty:
     st.info("Keine berechneten Planungsdaten vorhanden.")
+    _render_legende()
     st.stop()
 
 eff_cols = ["ist_vj", "eff_oeffnung", "eff_verteilung", "eff_norm",
@@ -600,38 +599,4 @@ st.download_button(
     key="herleitung2_dl_active",
 )
 
-# (Legende wurde an den Seitenanfang verschoben — immer sichtbar)
-# Dummy placeholder to keep legacy reference
-if False:
-    with st.expander("", expanded=False):
-        st.markdown("""
-### Vorgehen Logik 2 (Monatsumsatz-basiert)
-
-1. **Ausgangspunkt:** Monatsumsatz des Basiszeitraums (Vorjahr) je Monat.
-2. **Wochentags-Konstellation:** Über das ganze Basisjahr wird je Wochentag
-   sein Anteil am Normaltagsumsatz berechnet (ohne Sondertage/Feiertage/Ferien).
-   Hat das Planjahr eine andere Mo…So-Konstellation, verschiebt sich der
-   Monatsumsatz entsprechend der Wochentagsstärke (**+ Wochentag**).
-3. **Preisanpassung:** prozentualer Aufschlag je Monat (**+ Preis**).
-4. **Sondertage/Feiertage/Ferien:** wirken als Auf-/Abschlag und verschieben den
-   Monatsumsatz nur dann zwischen Monaten, wenn der Tag im Budgetjahr in einen
-   anderen Monat fällt als im Basisjahr (**+ Feiertag** / **+ Ferien**).
-5. **Verteilung auf Tage (**+ Verteilung**):** der fertige Monatsumsatz wird über die Anteile
-   der via Datumsmapping bestimmten Basistage am Basismonatsumsatz auf die einzelnen Tage
-   verteilt. Enthält auch die Normalisierungskorrektur, damit Monatssummen exakt stimmen.
-6. **Wochentagsvalidierung:** Nach der Berechnung wird geprüft, ob einzelne Tage
-   (Summe **Budget** über alle Filialen) um mehr als ±10 % vom Wochentagsschnitt
-   der umliegenden Monate abweichen. Ausgeschlossen werden dabei Feiertage,
-   Feiertagstage, Sondertage und Ferien — sowohl im Planjahr als auch Tage, deren
-   Vorjahres-Referenzdatum im Datumsmapping ein Sonder-/Feiertagstag war (z. B.
-   ein Dienstag, dessen IST-Basis aus dem Dienstag nach Ostermontag stammt).
-   Ausreißer werden auf den Wochentagsschnitt korrigiert, die Korrektur per
-   Dreisatz proportional auf alle Filialen verteilt (**+ Validierung**).
-
-```
-Budget = IST Basis + Öffnung + Verteilung + Wochentag + Preis + Ferien + Feiertag + Validierung
-```
-
-Diese Zerlegung addiert sich durch einfache Summation auf jede Zeit- und
-Aggregationsebene (Woche / Monat / Jahr, Filiale / Bundesland / Gesamt).
-""")
+_render_legende()
