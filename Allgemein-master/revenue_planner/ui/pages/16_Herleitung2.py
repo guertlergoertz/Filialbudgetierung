@@ -20,9 +20,7 @@ st.caption(
     "`+`-Spalten zeigen die additiven Effekte bis zum Tagesbudget."
 )
 
-# Platzhalter für Download-Button — wird nach Tabellenaufbau befüllt
-_dl_placeholder = st.empty()
-_dl_placeholder.button("📥 Excel herunterladen", disabled=True, key="herleitung2_dl_disabled")
+# Platzhalter für Download-Button — wird nach Tabellenaufbau befüllt (unterhalb der Tabelle)
 
 # ── Legende (immer sichtbar, unabhängig vom Ladezustand) ───────────────────────────────────
 with st.expander("📖 Legende — Berechnungslogik 2", expanded=False):
@@ -585,7 +583,7 @@ st.dataframe(
     column_config={k: v for k, v in col_cfg.items() if k in disp_fmt.columns},
 )
 
-# ── Excel-Export — Platzhalter oben befüllen ─────────────────────────────────────────────────────
+# ── Excel-Export — Button unterhalb der Tabelle ──────────────────────────────────────────────────
 buf = io.BytesIO()
 with pd.ExcelWriter(buf, engine="openpyxl") as writer:
     disp.to_excel(writer, index=False, sheet_name="Herleitung_Logik2")
@@ -593,7 +591,7 @@ with pd.ExcelWriter(buf, engine="openpyxl") as writer:
     ws = writer.sheets["Herleitung_Logik2"]
     for cell in ws[1]:
         cell.font = Font(bold=True)
-_dl_placeholder.download_button(
+st.download_button(
     "📥 Excel herunterladen",
     data=buf.getvalue(),
     file_name=f"Herleitung_Logik2_{planjahr}_{zeit_ebene}_{entity_ebene}_{gmbh.replace(' ', '_')}.xlsx",
