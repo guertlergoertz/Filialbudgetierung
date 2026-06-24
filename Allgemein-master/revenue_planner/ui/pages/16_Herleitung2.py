@@ -20,6 +20,46 @@ st.caption(
     "`+`-Spalten zeigen die additiven Effekte bis zum Tagesbudget."
 )
 
+# Platzhalter für Download-Button — wird nach Tabellenaufbau befüllt
+_dl_placeholder = st.empty()
+_dl_placeholder.button("📥 Excel herunterladen", disabled=True, key="herleitung2_dl_disabled")
+
+# ── Legende (immer sichtbar, unabhängig vom Ladezustand) ───────────────────────────────────
+with st.expander("📖 Legende — Berechnungslogik 2", expanded=False):
+    st.markdown("""
+### Vorgehen Logik 2 (Monatsumsatz-basiert)
+
+1. **Ausgangspunkt:** Monatsumsatz des Basiszeitraums (Vorjahr) je Monat.
+2. **Wochentags-Konstellation:** Über das ganze Basisjahr wird je Wochentag
+   sein Anteil am Normaltagsumsatz berechnet (ohne Sondertage/Feiertage/Ferien).
+   Hat das Planjahr eine andere Mo…So-Konstellation, verschiebt sich der
+   Monatsumsatz entsprechend der Wochentagsstärke (**+ Wochentag**).
+3. **Preisanpassung:** prozentualer Aufschlag je Monat (**+ Preis**).
+4. **Sondertage/Feiertage/Ferien:** wirken als Auf-/Abschlag und verschieben den
+   Monatsumsatz nur dann zwischen Monaten, wenn der Tag im Budgetjahr in einen
+   anderen Monat fällt als im Basisjahr (**+ Feiertag** / **+ Ferien**).
+5. **Verteilung auf Tage (**+ Verteilung**):** der fertige Monatsumsatz wird über die Anteile
+   der via Datumsmapping bestimmten Basistage am Basismonatsumsatz auf die einzelnen Tage
+   verteilt. Enthält auch die Normalisierungskorrektur, damit Monatssummen exakt stimmen.
+6. **Wochentagsvalidierung:** Nach der Berechnung wird geprüft, ob einzelne Tage
+   (Summe **Budget** über alle Filialen) um mehr als ±10 % vom Wochentagsschnitt
+   der umliegenden Monate abweichen. Ausgeschlossen werden dabei Feiertage,
+   Feiertagstage, Sondertage und Ferien — sowohl im Planjahr als auch Tage, deren
+   Vorjahres-Referenzdatum im Datumsmapping ein Sonder-/Feiertagstag war (z. B.
+   ein Dienstag, dessen IST-Basis aus dem Dienstag nach Ostermontag stammt).
+   Ausreißer werden auf den Wochentagsschnitt korrigiert, die Korrektur per
+   Dreisatz proportional auf alle Filialen verteilt (**+ Validierung**).
+
+```
+Budget = IST Basis + Öffnung + Verteilung + Wochentag + Preis + Ferien + Feiertag + Validierung
+```
+
+Diese Zerlegung addiert sich durch einfache Summation auf jede Zeit- und
+Aggregationsebene (Woche / Monat / Jahr, Filiale / Bundesland / Gesamt).
+""")
+
+st.divider()
+
 # ── Daten laden (gecacht in session_state je GmbH + Planjahr) ──────────────────────────────
 _cache_key = f"herleitung2_data_{gmbh}_{planjahr}"
 
@@ -535,8 +575,7 @@ st.dataframe(
     column_config={k: v for k, v in col_cfg.items() if k in disp_fmt.columns},
 )
 
-# ── Excel-Export ──────────────────────────────────────────────────────────────────────────────────
-st.divider()
+# ── Excel-Export — Platzhalter oben befüllen ─────────────────────────────────────────────────────
 buf = io.BytesIO()
 with pd.ExcelWriter(buf, engine="openpyxl") as writer:
     disp.to_excel(writer, index=False, sheet_name="Herleitung_Logik2")
@@ -544,18 +583,20 @@ with pd.ExcelWriter(buf, engine="openpyxl") as writer:
     ws = writer.sheets["Herleitung_Logik2"]
     for cell in ws[1]:
         cell.font = Font(bold=True)
-st.download_button(
+_dl_placeholder.download_button(
     "📥 Excel herunterladen",
     data=buf.getvalue(),
     file_name=f"Herleitung_Logik2_{planjahr}_{zeit_ebene}_{entity_ebene}_{gmbh.replace(' ', '_')}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     type="primary",
+    key="herleitung2_dl_active",
 )
 
-# ── Legende ────────────────────────────────────────────────────────────────────────────────────
-st.divider()
-with st.expander("📖 Legende — Berechnungslogik 2", expanded=True):
-    st.markdown("""
+# (Legende wurde an den Seitenanfang verschoben — immer sichtbar)
+# Dummy placeholder to keep legacy reference
+if False:
+    with st.expander("", expanded=False):
+        st.markdown("""
 ### Vorgehen Logik 2 (Monatsumsatz-basiert)
 
 1. **Ausgangspunkt:** Monatsumsatz des Basiszeitraums (Vorjahr) je Monat.
