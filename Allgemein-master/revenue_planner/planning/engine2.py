@@ -317,9 +317,6 @@ class PlanningEngine2:
         py = self.p.planjahr
 
         share_wt = self._weekday_share(fil_nr, fil, bl)
-        eroeff_str = fil.get("eroeffnung")
-        eroeff_base = date.fromisoformat(eroeff_str) if eroeff_str else None
-
         # Phase 1: pro Monat Basis (M0), Wochentagskonstellation (M1), Tages-Meta
         m0: dict[int, float] = {}
         m1: dict[int, float] = {}
@@ -415,22 +412,6 @@ class PlanningEngine2:
             s = sum(m["base_ist"] for m in open_metas)
             n_open = len(open_metas)
 
-            # Detect months where the branch hadn't fully opened in the base period.
-            # For these months, distribute the (extrapolated) month total via weekday
-            # shares rather than raw base_ist weights — otherwise pre-opening months get
-            # equal distribution (1/n_open) and the opening month bunches budget on the
-            # few real IST days instead of spreading it correctly across all open days.
-            base_yr_m = self.base_year_for_month(month)
-            use_wt_dist = (
-                eroeff_base is not None
-                and eroeff_base.year == base_yr_m
-                and eroeff_base.month >= month
-            )
-            _wt_total = (
-                sum(share_wt.get(mm["wt"], 0.0) for mm in open_metas)
-                if use_wt_dist else 0.0
-            )
-
             for m in metas:
                 imputed_budget: float | None = None
                 if (ref_day_budgets is not None and wt_shares is not None
@@ -445,15 +426,6 @@ class PlanningEngine2:
                         ref_total = ref_day_budgets.get(m["d"].isoformat(), 0.0)
                         eff_wt = 6 if m["tagestyp"] == "feiertag" else m["wt"]
                         imputed_budget = round(ref_total * wt_shares.get(eff_wt, 0.0), 2)
-                elif use_wt_dist and not m["closed"]:
-                    # Branch opened during base period but didn't qualify for full new-base
-                    # detection (e.g. too few days after exclusion window). Spread the
-                    # extrapolated month total proportionally by weekday share.
-                    if _wt_total > 0:
-                        imputed_budget = round(
-                            share_wt.get(m["wt"], 0.0) / _wt_total * _m3, 2)
-                    elif n_open > 0:
-                        imputed_budget = round(_m3 / n_open, 2)
                 results.append(self._build_day(
                     fil_nr, bl, m, _m0, _m1, _m2, _m3, sft, sfer, s, n_open,
                     imputed_budget=imputed_budget))
