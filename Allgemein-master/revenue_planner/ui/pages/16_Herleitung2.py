@@ -163,12 +163,18 @@ if _cache_key not in st.session_state:
         _has_data = _df_raw.groupby("fil_nr")[["budget", "ist_vj"]].sum().abs().sum(axis=1) > 0
         _df_raw = _df_raw[_df_raw["fil_nr"].isin(_has_data[_has_data].index)]
 
+        _fil_eroeff = {
+            str(r["fil_nr"]).strip(): r["eroeffnung"]
+            for r in conn.execute("SELECT fil_nr, eroeffnung FROM filialen").fetchall()
+        }
+
         st.session_state[_cache_key] = {
             "df": _df_raw,
             "last_ist_date": _last_ist_date,
             "dm_lookup": _dm_lookup,
             "dm_typ_lookup": _dm_typ_lookup,
             "ferien_kal": _ferien_kal,
+            "fil_eroeff": _fil_eroeff,
         }
     st.rerun()
 
@@ -182,6 +188,7 @@ _last_ist_date = _cached["last_ist_date"]
 _dm_lookup = _cached["dm_lookup"]
 _dm_typ_lookup = _cached["dm_typ_lookup"]
 _ferien_kal_rows = _cached["ferien_kal"]
+_fil_eroeff = _cached.get("fil_eroeff", {})
 _col_hint.caption(f"{len(df_all):,} Planzeilen geladen · {df_all['fil_nr'].nunique()} Filialen")
 
 if df_all.empty:
@@ -193,7 +200,23 @@ eff_cols = ["ist_vj", "eff_oeffnung", "eff_verteilung", "eff_norm",
             "eff_wochentag", "eff_preis", "eff_ferien", "eff_feiertag", "eff_validierung", "budget"]
 
 # ── Filter ─────────────────────────────────────────────────────────────────────────────────
-cf1, cf2 = st.columns(2)
+from datetime import date as _date
+
+_base_year = planjahr - 1
+_base_start_cutoff = _date(_base_year, 1, 3)
+
+def _classify_fil_typ(fil_nr: str) -> str:
+    eroeff = _fil_eroeff.get(fil_nr)
+    if not eroeff:
+        return "Bestandsfiliale"
+    try:
+        return "Bestandsfiliale" if _date.fromisoformat(eroeff) <= _base_start_cutoff else "Neue Filiale"
+    except Exception:
+        return "Bestandsfiliale"
+
+df_all["_fil_typ"] = df_all["fil_nr"].map(_classify_fil_typ)
+
+cf1, cf2, cf3 = st.columns(3)
 with cf1:
     fil_filter = st.multiselect(
         "Filtern auf Filiale(n) (leer = alle)",
@@ -208,11 +231,23 @@ with cf2:
         placeholder="Bundesland auswählen...",
         key="herleitung2_bl_filter",
     )
+with cf3:
+    fil_typ_filter = st.selectbox(
+        "Filialen-Basiszeitraum",
+        ["Alle", "Bestandsfilialen", "Neue Filialen"],
+        index=0,
+        key="herleitung2_fil_typ_filter",
+        help=f"Bestandsfilialen: vor dem 04.01.{_base_year} eröffnet; Neue Filialen: danach",
+    )
 
 if fil_filter:
     df_all = df_all[df_all["fil_nr"].isin(fil_filter)]
 if bl_filter:
     df_all = df_all[df_all["bundesland"].isin(bl_filter)]
+if fil_typ_filter == "Bestandsfilialen":
+    df_all = df_all[df_all["_fil_typ"] == "Bestandsfiliale"]
+elif fil_typ_filter == "Neue Filialen":
+    df_all = df_all[df_all["_fil_typ"] == "Neue Filiale"]
 
 # ── Steuerung ─────────────────────────────────────────────────────────────────────────────────
 c1, c2 = st.columns(2)
@@ -459,7 +494,7 @@ if zeit_ebene == "Tag":
 # eff_norm (hidden per rule) wird in eff_verteilung eingerechnet, damit die angezeigte Summe = Budget
 agg["eff_verteilung"] = agg["eff_verteilung"].fillna(0) + agg["eff_norm"].fillna(0)
 
-drop_cols = ["_sort", "eff_norm", "_budget_for_ist", "_iso", "_daytype"] + [
+drop_cols = ["_sort", "eff_norm", "_budget_for_ist", "_iso", "_daytype", "_fil_typ"] + [
     c for c in ["wochentag", "tagestyp", "feiertag_name"] if c in agg.columns and zeit_ebene == "Tag"
 ]
 if zeit_ebene != "Tag":
