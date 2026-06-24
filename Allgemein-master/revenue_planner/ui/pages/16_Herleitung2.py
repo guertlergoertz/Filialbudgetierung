@@ -37,24 +37,24 @@ def _render_legende():
 5. **Verteilung auf Tage (**+ Verteilung**):** der fertige Monatsumsatz wird über die Anteile
    der via Datumsmapping bestimmten Basistage am Basismonatsumsatz auf die einzelnen Tage
    verteilt. Enthält auch die Normalisierungskorrektur, damit Monatssummen exakt stimmen.
-   **Neueröffnungen im Basiszeitraum:** Filialen, die erst während des Basiszeitraums
-   eröffneten (und im letzten Monat des Basiszeitraums Umsätze hatten), werden für die
-   Budgetierung der noch fehlenden Tage wie folgt hochgerechnet:
+   **Filialen mit Umsatzlücken im Basiszeitraum:** Filialen, die an manchen Tagen keinen
+   oder nur sehr geringen Basisumsatz (< 100 €) hatten (z. B. Neueröffnungen, vorübergehend
+   geschlossene Filialen), werden für diese fehlenden Tage über Bestandsfilialen hochgerechnet.
+   Voraussetzung: mindestens 21 Tage mit Umsatz ≥ 100 € im Basiszeitraum.
 
-   1. **Auswertungszeitraum:** Die ersten 14 Tage nach Eröffnung werden ausgeschlossen.
-      Verbleiben danach weniger als 3 Wochen Daten, wird die Filiale nicht hochgerechnet.
-      Beispiel: Eröffnung 19.09. → Auswertungszeitraum 03.10.–31.12.
-   2. **Referenzfilialen:** Für diesen Zeitraum werden die Umsätze aller Filialen je
-      Wochentag summiert, die in **jedem einzelnen Monat** des Zeitraums vollständig
-      geöffnet waren (Umsatz > 0 in jedem Monat).
-   3. **Wochentagsanteil:** Je Wochentag wird der Anteil der neuen Filiale an der
-      Gesamtsumme der Referenzfilialen berechnet.
-   4. **Fehlende Budgettage:** Für alle Budgettage, deren Basisdatum vor dem
-      Auswertungszeitraum liegt, ergibt sich das Budget aus:
-      *Summe Budget Referenzfilialen an diesem Budgettag × Wochentagsanteil der neuen Filiale.*
-      Beispiel: Wochentagsanteil 0,8 %, Ref.-Budget 500.000 € → Budget 4.000 €.
+   1. **Auswertungszeitraum:** Ab dem ersten Tag mit Umsatz ≥ 100 € bis zum Ende des
+      Basiszeitraums. Filialen mit weniger als 21 solcher Tage werden nicht hochgerechnet.
+   2. **Bestandsfilialen:** Filialen, die in **jedem Monat** des Auswertungszeitraums
+      einen Gesamtumsatz ≥ 100 € hatten (keine Lücken). Diese dienen als Referenz.
+   3. **Wochentagsanteil:** Je Wochentag wird der Anteil der Filiale an der Gesamtsumme
+      der Bestandsfilialen berechnet — nur über die Tage mit Umsatz ≥ 100 €.
+      Beispiel: alle Montage der Filiale ÷ alle Montage der Bestandsfilialen = 0,8 %.
+   4. **Fehlende Budgettage:** Für jeden Budgettag, dessen Basis-IST < 100 € ist, ergibt
+      sich das Budget aus:
+      *Wochentagsanteil × Summe der Budgets aller Bestandsfilialen an diesem Budgettag.*
+      Beispiel: 0,8 % × 500.000 € = 4.000 €.
    5. **Feiertage:** Echte Feiertage (nicht Feiertagstage) werden mit dem
-      **Sonntagsanteil** der neuen Filiale bewertet.
+      **Sonntagsanteil** der Filiale bewertet.
 6. **Wochentagsvalidierung:** Nach der Berechnung wird geprüft, ob einzelne Tage
    (Summe **Budget** über alle Filialen) um mehr als ±10 % vom Wochentagsschnitt
    der umliegenden Monate abweichen. Ausgeschlossen werden dabei Feiertage,
