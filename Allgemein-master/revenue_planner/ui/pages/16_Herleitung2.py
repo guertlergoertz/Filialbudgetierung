@@ -40,13 +40,21 @@ def _render_legende():
    **Neueröffnungen im Basiszeitraum:** Filialen, die erst während des Basiszeitraums
    eröffneten (und im letzten Monat des Basiszeitraums Umsätze hatten), werden für die
    Budgetierung der noch fehlenden Tage wie folgt hochgerechnet:
-   die ersten 14 Tage nach Eröffnung werden ausgeschlossen; verbleiben danach weniger als
-   3 Wochen Daten, wird die Filiale nicht hochgerechnet.
-   Ansonsten wird je Wochentag der Umsatzanteil der neuen Filiale an allen Referenzfilialen
-   (= Filialen, die in jedem Monat des Auswertungszeitraums vollständig geöffnet waren)
-   berechnet. Für fehlende Budgettage ergibt sich das Budget dann aus:
-   *Summe Budget Referenzfilialen an diesem Budgettag × Wochentagsanteil der neuen Filiale.*
-   Feiertage (nicht Feiertagstage) werden dabei mit dem Sonntagsanteil bewertet.
+
+   1. **Auswertungszeitraum:** Die ersten 14 Tage nach Eröffnung werden ausgeschlossen.
+      Verbleiben danach weniger als 3 Wochen Daten, wird die Filiale nicht hochgerechnet.
+      Beispiel: Eröffnung 19.09. → Auswertungszeitraum 03.10.–31.12.
+   2. **Referenzfilialen:** Für diesen Zeitraum werden die Umsätze aller Filialen je
+      Wochentag summiert, die in **jedem einzelnen Monat** des Zeitraums vollständig
+      geöffnet waren (Umsatz > 0 in jedem Monat).
+   3. **Wochentagsanteil:** Je Wochentag wird der Anteil der neuen Filiale an der
+      Gesamtsumme der Referenzfilialen berechnet.
+   4. **Fehlende Budgettage:** Für alle Budgettage, deren Basisdatum vor dem
+      Auswertungszeitraum liegt, ergibt sich das Budget aus:
+      *Summe Budget Referenzfilialen an diesem Budgettag × Wochentagsanteil der neuen Filiale.*
+      Beispiel: Wochentagsanteil 0,8 %, Ref.-Budget 500.000 € → Budget 4.000 €.
+   5. **Feiertage:** Echte Feiertage (nicht Feiertagstage) werden mit dem
+      **Sonntagsanteil** der neuen Filiale bewertet.
 6. **Wochentagsvalidierung:** Nach der Berechnung wird geprüft, ob einzelne Tage
    (Summe **Budget** über alle Filialen) um mehr als ±10 % vom Wochentagsschnitt
    der umliegenden Monate abweichen. Ausgeschlossen werden dabei Feiertage,

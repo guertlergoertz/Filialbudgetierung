@@ -309,8 +309,7 @@ class PlanningEngine2:
     def plan_branch(self, fil_nr: str,
                     ref_day_budgets: dict[str, float] | None = None,
                     wt_shares: dict[int, float] | None = None,
-                    new_effective_start: date | None = None,
-                    first_full_month_start: date | None = None) -> list[DayPlan]:
+                    new_effective_start: date | None = None) -> list[DayPlan]:
         e = self.e
         fil = self.filialen.get(fil_nr, {"bundesland": "RP"})
         bl = _normalize_bl(fil.get("bundesland", "RP") or "RP")
@@ -415,15 +414,15 @@ class PlanningEngine2:
             for m in metas:
                 imputed_budget: float | None = None
                 if (ref_day_budgets is not None and wt_shares is not None
-                        and first_full_month_start is not None
+                        and new_effective_start is not None
                         and not m["closed"]):
                     base_d = m.get("base_d")
-                    # Impute entire months before the first month the branch was fully open.
-                    # first_full_month_start = first day of the month after effective_start's month,
-                    # so the opening month itself (and any month the 14-day window bleeds into)
-                    # is fully imputed rather than mixed with partial IST.
-                    if base_d is None or base_d.replace(day=1) < first_full_month_start:
+                    # Impute days whose base date falls before the effective start of the new
+                    # branch (opening date + 14 exclusion days). Days from effective_start
+                    # onwards have actual IST data and use the regular L2 calculation.
+                    if base_d is None or base_d < new_effective_start:
                         ref_total = ref_day_budgets.get(m["d"].isoformat(), 0.0)
+                        # Step 5: public holidays use the Sunday weekday share.
                         eff_wt = 6 if m["tagestyp"] == "feiertag" else m["wt"]
                         imputed_budget = round(ref_total * wt_shares.get(eff_wt, 0.0), 2)
                 results.append(self._build_day(
@@ -567,12 +566,9 @@ class PlanningEngine2:
             ref_results[fil_nr] = branch_results
 
         # Pass 2: calculate new-base branches using ref budgets per plan day.
-        # first_full_month_start: first calendar month the branch was fully open in the base period.
-        # = month after the month containing effective_start (so opening month + any bleed-over
-        #   from the 14-day exclusion are fully imputed, not just partially).
+        # Imputation threshold: budget days whose base date < effective_start get imputed
+        # via the ref-share method; days from effective_start onwards use regular L2 calc.
         for fil_nr, (eff_start, ref_set, shares) in new_branch_info.items():
-            nxt = eff_start.month + 1
-            ffm = date(eff_start.year + (nxt - 1) // 12, (nxt - 1) % 12 + 1, 1)
             ref_day_budgets: dict[str, float] = {}
             for ref_fil in ref_set:
                 for dp in ref_results.get(ref_fil, []):
@@ -583,7 +579,6 @@ class PlanningEngine2:
                 ref_day_budgets=ref_day_budgets,
                 wt_shares=shares,
                 new_effective_start=eff_start,
-                first_full_month_start=ffm,
             )
             out.extend(branch_results)
 
