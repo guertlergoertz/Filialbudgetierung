@@ -126,12 +126,11 @@ class PlanningEngine2:
         effective_start = eroeff + timedelta(days=_NEW_BRANCH_EXCL_DAYS)
         if (base_end - effective_start).days < _NEW_BRANCH_MIN_DAYS:
             return False, None
-        # Must have actual IST in the last base month (not extrapolated)
-        by = e.base_end_year
-        bm = e.base_end_month
+        # Must have actual IST revenue after the exclusion period
         df = e._branch_base_ist(fil_nr)
-        last_month_ist = df[(df["datum"].dt.year == by) & (df["datum"].dt.month == bm)]["umsatz"].sum()
-        if last_month_ist <= 0:
+        eff_ts = pd.Timestamp(effective_start)
+        eff_ist = df[df["datum"] >= eff_ts]["umsatz"].sum()
+        if eff_ist <= 0:
             return False, None
         return True, effective_start
 
@@ -420,7 +419,7 @@ class PlanningEngine2:
                     # Impute days whose base date falls before the effective start of the new
                     # branch (opening date + 14 exclusion days). Days from effective_start
                     # onwards have actual IST data and use the regular L2 calculation.
-                    if base_d is None or base_d < new_effective_start:
+                    if base_d is None or base_d < new_effective_start or s == 0:
                         ref_total = ref_day_budgets.get(m["d"].isoformat(), 0.0)
                         # Step 5: public holidays use the Sunday weekday share.
                         eff_wt = 6 if m["tagestyp"] == "feiertag" else m["wt"]
