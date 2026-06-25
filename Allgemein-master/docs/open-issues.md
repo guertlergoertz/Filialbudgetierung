@@ -6,6 +6,21 @@
 
 ## Behoben ✅
 
+- **Datumsmapping: Normaltage dürfen nicht auf VJ-Feiertagstage/Sondertage landen** (06/2026):
+  `_vj_special_bl` (Feiertagstage + Sondertage im Basiszeitraum, per BL) in `datumsmapping.py`
+  aufgebaut und im `_avoid`-Prädikat (Schritt 6, ISO-KW-Fallback) ergänzt. Ohne Fix landete z. B.
+  der normale Sonntag 1. März 2026 (ISO-KW 9) auf dem Fasching-Sonntag 2. März 2025, einem
+  Feiertagstag. Regressionstest `test_normal_day_does_not_map_to_vj_feiertagstag` sichert das ab.
+- **Logik 2 eff_verteilung bei monatsübergreifenden Sondertagen/Feiertagstagen/Ferien** (06/2026):
+  Wenn Phase 2 einen Auf-/Abschlag für einen Tag berechnet, dessen `base_d.month ≠ plan_month`
+  ist, wird `neigh_ref` (Nachbar-Wochentags-Ø) in den Day-Metas gespeichert. `_build_day` nutzt
+  `neigh_ref` statt des rohen `base_ist` für `eff_verteilung`, sodass `eff_verteilung` nahe 0
+  bleibt (wie bei Normaltagen). Die Differenz `neigh_ref − ist_vj` wird in `eff_feiertag` /
+  `eff_ferien` verschoben; die additive Identität gilt exakt.
+- **Logik 2 Neue-Filiale-Imputation: Schwellwert auf < 100 € gesenkt** (06/2026):
+  Trigger von `base_ist == 0.0` auf `base_ist < _MIN_IST` (100 €) geändert, damit Tage mit
+  geringem Vergleichsumsatz (z. B. 50 €) ebenfalls über Wochentagsanteile hochgerechnet werden.
+
 - **Zweite Berechnungslogik (Logik 2)** parallel implementiert: `planning/engine2.py`
   (`PlanningEngine2`), Tabelle `planung2`, UI-Seiten 15/16/17 (Planung/Herleitung/
   Planungsgenauigkeit, jeweils „L2"), Navigationsgruppe „Logik 2 (alternativ)".
