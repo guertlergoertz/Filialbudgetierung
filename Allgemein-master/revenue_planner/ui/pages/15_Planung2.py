@@ -109,7 +109,7 @@ if st.session_state.get("_do_plan2"):
         _t_start = _time.monotonic()
 
         def _on_progress(done: int, total: int, fil_nr: str):
-            pct = int(done / total * 100) if total else 100
+            pct = min(int(done / total * 100), 100) if total else 100
             elapsed = _time.monotonic() - _t_start
             if done > 1 and done < total:
                 avg_s = elapsed / done
