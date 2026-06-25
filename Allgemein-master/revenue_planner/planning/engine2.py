@@ -329,6 +329,11 @@ class PlanningEngine2:
                 bucket[month] += markup        # Budgetmonat erhält Auf-/Abschlag
                 if 1 <= base_d.month <= 12:
                     bucket[base_d.month] -= markup  # Ursprungsmonat verliert ihn
+                # Store neigh so _build_day can normalise eff_verteilung:
+                # without this, eff_verteilung = w*_m0 - base_ist would be hugely
+                # negative because base_ist is from a different month than _m0.
+                m["neigh_ref"] = neigh
+                m["shift_bucket"] = "ft" if is_ft else "fer"
 
         # Phase 3: Monatsumsatz finalisieren + auf Tage verteilen
         results: list[DayPlan] = []
@@ -354,7 +359,7 @@ class PlanningEngine2:
             for m in metas:
                 imputed_budget: float | None = None
                 if ref_day_budgets is not None and wt_shares is not None and not m["closed"]:
-                    if m["base_ist"] == 0.0:
+                    if m["base_ist"] < _MIN_IST:
                         is_feiertag = m["tagestyp"] == "feiertag"
                         if is_feiertag:
                             # Impute Feiertag only if branch had Feiertag revenue in base period.
@@ -435,10 +440,27 @@ class PlanningEngine2:
             w = (1.0 / n_open) if n_open else 0.0
 
         budget = round(w * _m3, 2)
-        eff_verteilung = round(w * _m0 - ist_vj, 2)
+        # For cross-month special days (Feiertagstag/Sondertag/Ferien where
+        # base_d.month ≠ plan_month), Phase 2 stored neigh_ref = neighbour avg.
+        # Using neigh_ref for eff_verteilung avoids a huge negative value caused
+        # by ist_vj (from the special day's month) diverging from w*_m0 (of the
+        # plan month). The gap (neigh_ref − ist_vj) is moved into eff_feiertag /
+        # eff_ferien so the additive identity is preserved exactly.
+        neigh_ref = m.get("neigh_ref")
+        shift_bucket = m.get("shift_bucket")
+        if neigh_ref is not None:
+            ref_for_verteilung = neigh_ref
+            adj = round(neigh_ref - ist_vj, 2)
+            eff_feiertag_adj = adj if shift_bucket == "ft" else 0.0
+            eff_ferien_adj = adj if shift_bucket == "fer" else 0.0
+        else:
+            ref_for_verteilung = ist_vj
+            eff_feiertag_adj = 0.0
+            eff_ferien_adj = 0.0
+        eff_verteilung = round(w * _m0 - ref_for_verteilung, 2)
         eff_wochentag = round(w * (_m1 - _m0), 2)
-        eff_feiertag = round(w * sft, 2)
-        eff_ferien = round(w * sfer, 2)
+        eff_feiertag = round(w * sft + eff_feiertag_adj, 2)
+        eff_ferien = round(w * sfer + eff_ferien_adj, 2)
         eff_preis = round(w * (_m3 - _m2), 2)
         eff_norm = round(
             budget - (ist_vj + eff_verteilung + eff_wochentag

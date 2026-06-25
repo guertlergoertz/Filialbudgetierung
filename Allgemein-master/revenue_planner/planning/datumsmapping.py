@@ -135,6 +135,24 @@ def generate_datumsmapping(conn: sqlite3.Connection, planjahr: int, engine) -> i
         for d in _date_range(vs, ve):
             s.add(d.isoformat())
 
+    # Build VJ Feiertagstage + Sondertage dates per BL — these must not serve as
+    # base-comparison days for normal plan days (ISO-KW fallback, step 6).
+    _vj_special_bl: dict[str, set[str]] = {}
+    for entries in engine.feiertage.values():
+        for ft in entries:
+            if ft.get("art") == "feiertagstag" and ft.get("datum_vj"):
+                bl_f = ft["bundesland"]
+                target_bls = bundeslaender if bl_f in ("alle", "") else [_normalize_bl(bl_f)]
+                for tbl in target_bls:
+                    _vj_special_bl.setdefault(tbl, set()).add(ft["datum_vj"])
+    for st in engine.sondertage.values():
+        if st.get("datum_referenz"):
+            bl_s = (st.get("bundesland") or "alle")
+            target_bls = (bundeslaender if bl_s in ("alle", "")
+                          else [_normalize_bl(bl_s)])
+            for tbl in target_bls:
+                _vj_special_bl.setdefault(tbl, set()).add(st["datum_referenz"])
+
     rows: list[tuple] = []
 
     for month in range(1, 13):
@@ -243,11 +261,13 @@ def generate_datumsmapping(conn: sqlite3.Connection, planjahr: int, engine) -> i
                     _used_iso_kw = True
 
                 # 6. For normal/feiertagstag days (and ferien days that fell back
-                # to ISO-KW): avoid landing on a VJ holiday, vacation or Dec 24/31.
+                # to ISO-KW): avoid landing on a VJ holiday, vacation, Feiertagstag,
+                # Sondertag or Dec 24/31 in the base year.
                 if plan_typ in ("normal", "feiertagstag") or (plan_typ == "ferien" and _used_iso_kw):
                     def _avoid(d, _bl=bl):
                         return (_is_vj_holiday(d, _bl, engine)
                                 or d.isoformat() in _vj_ferien_bl.get(_bl, set())
+                                or d.isoformat() in _vj_special_bl.get(_bl, set())
                                 or is_special_quasi_feiertag(d))
                     if _avoid(base_d):
                         # Forward first (nearest normal week after the blocked day),

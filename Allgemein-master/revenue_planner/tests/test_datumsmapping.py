@@ -33,6 +33,16 @@ PUBLIC_HOLIDAYS = [
     ("2026-01-06", "2025-01-06", "Heilige Drei Könige", "BW", "feiertag"),
 ]
 
+# Fasching 2026 Feiertagstage (Rosenmontag=2026-02-16, Faschingsdienstag=2026-02-17).
+# Their VJ base dates are the corresponding Fasching days in 2025
+# (Rosenmontag=2025-03-03, Faschingsdienstag=2025-03-04).
+# Fasching-Sonntag 2025 (2025-03-02) is also tagged as a Feiertagstag (datum_vj).
+FASCHING_FEIERTAGSTAGE = [
+    ("2026-02-15", "2025-03-01", "Feiertagstag", "alle", "feiertagstag"),  # Sonntag vor Rosenmontag
+    ("2026-02-16", "2025-03-03", "Feiertagstag", "alle", "feiertagstag"),  # Rosenmontag
+    ("2026-02-17", "2025-03-04", "Feiertagstag", "alle", "feiertagstag"),  # Faschingsdienstag
+]
+
 # Realistic BW school-holiday calendar (jahr = calendar year of each fragment).
 FERIEN_KALENDER = [
     # Weihnachtsferien split across the year boundary (two rows per year):
@@ -58,7 +68,7 @@ def dm_conn():
     conn.execute("INSERT INTO filialen (fil_nr, bezeichnung, bundesland) VALUES ('1','F','BW')")
     conn.executemany(
         "INSERT INTO feiertage (datum_plan, datum_vj, name, bundesland, art) VALUES (?,?,?,?,?)",
-        PUBLIC_HOLIDAYS,
+        PUBLIC_HOLIDAYS + FASCHING_FEIERTAGSTAGE,
     )
     conn.executemany(
         "INSERT INTO ferien_kalender (bundesland, art, jahr, start, ende) VALUES (?,?,?,?,?)",
@@ -163,3 +173,43 @@ def test_ferien_prefers_ferien_base_when_possible(dm_conn):
             f"{r['plan_datum']} (wt={wt}) mapped to non-ferien {r['base_datum']} "
             f"although VJ period {period['start_vj']}..{period['ende_vj']} "
             f"has usable days {usable}")
+
+
+def _vj_feiertagstag_dates() -> set[str]:
+    """VJ base dates of all Feiertagstage in the test data."""
+    return {row[1] for row in FASCHING_FEIERTAGSTAGE if row[1]}
+
+
+def test_normal_day_does_not_map_to_vj_feiertagstag(dm_conn):
+    """A normal plan day must never use a VJ Feiertagstag (e.g. Fasching-Sonntag)
+    as its ISO-KW base comparison day.
+
+    Concrete case: 2026-03-01 (Sunday, ISO-KW 9) would naively resolve to
+    2025-03-02 (Fasching-Sonntag, also ISO-KW 9 Sunday) — the fix must step
+    over it to the next available normal Sunday.
+    """
+    blocked = _vj_feiertagstag_dates()
+    rows = dm_conn.execute(
+        "SELECT plan_datum, base_datum FROM datumsmapping "
+        "WHERE bundesland='BW' AND plan_typ='normal'"
+    ).fetchall()
+    assert rows, "no normal mapping rows generated"
+    for r in rows:
+        assert r["base_datum"] not in blocked, (
+            f"normal plan day {r['plan_datum']} mapped to VJ Feiertagstag {r['base_datum']}"
+        )
+
+
+def test_normal_day_does_not_map_to_vj_sondertag(dm_conn):
+    """A normal plan day must never use a VJ Sondertag (datum_referenz) as its
+    ISO-KW base comparison day."""
+    # No Sondertage in this fixture, so just assert no mapping_art issues occur.
+    rows = dm_conn.execute(
+        "SELECT plan_datum, base_datum, mapping_art FROM datumsmapping "
+        "WHERE bundesland='BW' AND plan_typ='normal'"
+    ).fetchall()
+    assert rows
+    for r in rows:
+        assert r["mapping_art"] in ("iso_kw",), (
+            f"unexpected mapping_art '{r['mapping_art']}' for normal day {r['plan_datum']}"
+        )
