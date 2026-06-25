@@ -553,32 +553,44 @@ class PlanningEngine2:
         ].copy()
         base_df["ym"] = base_df["datum"].dt.to_period("M")
 
-        # Per-branch: count of days with IST >= _MIN_IST, days with IST < _MIN_IST, first revenue date
-        grp = base_df.groupby("fil_nr")
+        # All calendar months in the base period (for gap detection)
+        all_base_months: list[tuple[int, int]] = []
+        cur = e.base_start.replace(day=1)
+        base_end_d = e.base_mask_end.date()
+        while cur < base_end_d:
+            all_base_months.append((cur.year, cur.month))
+            nxt = cur.month + 1
+            cur = cur.replace(year=cur.year + (nxt - 1) // 12, month=(nxt - 1) % 12 + 1)
+
+        # Monthly IST sums for all active branches (single groupby)
+        all_monthly_ist: dict[str, dict[tuple[int, int], float]] = {}
+        for fil_nr, grp_df in base_df.groupby("fil_nr"):
+            mo_sums = grp_df.groupby("ym")["umsatz"].sum()
+            all_monthly_ist[str(fil_nr)] = {(p.year, p.month): float(v) for p, v in mo_sums.items()}
+
+        # Revenue-day counts and first revenue date per branch (for _PARTIAL_MIN_DAYS check)
         rev_mask_series = base_df["umsatz"] >= _MIN_IST
         rev_counts = base_df[rev_mask_series].groupby("fil_nr")["datum"].agg(["count", "min"])
-        gap_counts = base_df[~rev_mask_series].groupby("fil_nr").size()
 
+        # Partial branch = at least one month with sum(IST) < _MIN_IST  AND  at least one month
+        # with sum(IST) >= _MIN_IST.  Day-level gaps (e.g. holidays) are NOT enough to qualify.
         partial_eff_start: dict[str, date] = {}
         for fil_nr in active:
+            mo = all_monthly_ist.get(fil_nr, {})
+            month_sums = [mo.get(ym, 0.0) for ym in all_base_months]
+            if not any(s >= _MIN_IST for s in month_sums):
+                continue  # no revenue at all
+            if not any(s < _MIN_IST for s in month_sums):
+                continue  # every month has revenue → Bestandsfiliale
             rc = rev_counts.loc[fil_nr] if fil_nr in rev_counts.index else None
-            if rc is None:
-                continue
-            if fil_nr not in gap_counts.index:
-                continue  # no gaps → Bestandsfiliale
-            if rc["count"] < _PARTIAL_MIN_DAYS:
+            if rc is None or rc["count"] < _PARTIAL_MIN_DAYS:
                 continue
             partial_eff_start[fil_nr] = rc["min"].date()
 
         partial_fil_nrs = set(partial_eff_start)
 
-        # Pre-compute monthly IST sums per branch (only non-partial branches needed as refs)
-        ref_candidates = active_set - partial_fil_nrs
-        ref_base_df = base_df[base_df["fil_nr"].isin(ref_candidates)]
-        monthly_ist: dict[str, dict[tuple[int, int], float]] = {}
-        for fil_nr, grp_df in ref_base_df.groupby("fil_nr"):
-            mo_sums = grp_df.groupby("ym")["umsatz"].sum()
-            monthly_ist[fil_nr] = {(p.year, p.month): float(v) for p, v in mo_sums.items()}
+        # Pre-compute monthly IST for ref candidates (non-partial branches)
+        monthly_ist = {f: v for f, v in all_monthly_ist.items() if f not in partial_fil_nrs}
 
         # Build ref sets and weekday shares per partial branch
         new_branch_info: dict[str, tuple[date, set[str], dict[int, float]]] = {}
