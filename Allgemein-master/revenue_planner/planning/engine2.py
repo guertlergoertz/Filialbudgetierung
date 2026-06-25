@@ -51,9 +51,7 @@ from planning.engine import (
     is_special_quasi_feiertag,
 )
 
-_MIN_IST = 100.0             # days with IST below this are treated as "no revenue"
-_NEW_BRANCH_EXCL_DAYS = 14   # grace period after eroeffnung excluded from weekday shares
-_NEW_BRANCH_MIN_DAYS = 21    # minimum IST days after grace period for reliable weekday shares
+_MIN_IST = 100.0   # days with IST below this are treated as "no revenue"
 
 
 class PlanningEngine2:
@@ -107,130 +105,46 @@ class PlanningEngine2:
 
     # ── Neue-Basis-Filiale: Erkennung und Hochrechnung ────────────────────
 
-    def _detect_new_base_branch(self, fil_nr: str, fil: dict) -> tuple[bool, date | None]:
-        """Returns (is_new_in_base, effective_start) for branches opened during the base period.
-
-        A branch qualifies if its eroeffnung date falls within the base window AND
-        there are at least _NEW_BRANCH_MIN_DAYS days with IST >= _MIN_IST after the
-        grace period.  effective_start = eroeffnung + _NEW_BRANCH_EXCL_DAYS.
-        """
+    def _branch_had_feiertag_ist(self, fil_nr: str) -> bool:
+        """True if the branch had any revenue on an actual Feiertag in the base period."""
         e = self.e
-        eroeff_str = fil.get("eroeffnung")
-        if not eroeff_str:
-            return False, None
-        eroeff = date.fromisoformat(eroeff_str)
-        # Only branches opened within the base window count
-        if not (e.base_start <= eroeff < e.base_mask_end.date()):
-            return False, None
-        effective_start = eroeff + timedelta(days=_NEW_BRANCH_EXCL_DAYS)
-        if effective_start >= e.base_mask_end.date():
-            return False, None
         df = e._branch_base_ist(fil_nr)
         if df.empty:
-            return False, None
-        eff_ts = pd.Timestamp(effective_start)
-        rev_days = df[(df["datum"] >= eff_ts) & (df["umsatz"] >= _MIN_IST)]
-        if len(rev_days) < _NEW_BRANCH_MIN_DAYS:
-            return False, None
-        return True, effective_start
+            return False
+        feiertag_iso: set[str] = set()
+        for entries in e.feiertage.values():
+            for ft in entries:
+                if ft.get("datum_vj"):
+                    feiertag_iso.add(ft["datum_vj"])
+        iso_series = df["datum"].dt.strftime("%Y-%m-%d")
+        return bool(((df["umsatz"] > 0) & (iso_series.isin(feiertag_iso))).any())
 
-    def _ref_branches_for_new_bulk(
-        self,
-        effective_start: date,
-        partial_fil_nrs: set[str],
-        monthly_ist: dict[str, dict[tuple[int, int], float]],
-    ) -> set[str]:
-        """Bestandsfilialen using pre-computed monthly IST sums (fast, no per-branch DB calls)."""
-        e = self.e
-        base_end = e.base_mask_end.date()
-        ref_months: list[tuple[int, int]] = []
-        cur = effective_start.replace(day=1)
-        while cur < base_end:
-            ref_months.append((cur.year, cur.month))
-            nxt = cur.month + 1
-            cur = cur.replace(year=cur.year + (nxt - 1) // 12, month=(nxt - 1) % 12 + 1)
-
-        result: set[str] = set()
-        for fil_nr, mo_sums in monthly_ist.items():
-            if fil_nr in partial_fil_nrs:
-                continue
-            fil = e.filialen.get(fil_nr, {})
-            if fil.get("flag_gesperrt") or fil.get("flag_inaktiv"):
-                continue
-            fil_eroeff = fil.get("eroeffnung")
-            if fil_eroeff and date.fromisoformat(fil_eroeff) >= effective_start:
-                continue
-            fil_ende = fil.get("eroeffnung_ende")
-            if fil_ende and date.fromisoformat(fil_ende) < base_end:
-                continue
-            if all(mo_sums.get(ym, 0.0) >= _MIN_IST for ym in ref_months):
-                result.add(fil_nr)
-        return result
-
-    def _ref_branches_for_new(self, effective_start: date, partial_fil_nrs: set[str]) -> set[str]:
-        """Bestandsfilialen: branches with revenue in every month of [effective_start, base_end).
-
-        'Bestandsfiliale' = no IST gaps (IST >= _MIN_IST in every month of the period).
-        Partial branches are never used as references.
-        """
-        e = self.e
-        base_end = e.base_mask_end.date()
-        ref_months: list[tuple[int, int]] = []
-        cur = effective_start.replace(day=1)
-        while cur < base_end:
-            ref_months.append((cur.year, cur.month))
-            nxt = cur.month + 1
-            cur = cur.replace(year=cur.year + (nxt - 1) // 12, month=(nxt - 1) % 12 + 1)
-
-        result: set[str] = set()
-        for fil_nr, fil in e.filialen.items():
-            if fil_nr in partial_fil_nrs:
-                continue
-            if fil.get("flag_gesperrt") or fil.get("flag_inaktiv"):
-                continue
-            fil_eroeff = fil.get("eroeffnung")
-            if fil_eroeff and date.fromisoformat(fil_eroeff) >= effective_start:
-                continue
-            fil_ende = fil.get("eroeffnung_ende")
-            if fil_ende and date.fromisoformat(fil_ende) < base_end:
-                continue
-            df = e._branch_base_ist(fil_nr)
-            ok = True
-            for yr, mo in ref_months:
-                month_sum = df[(df["datum"].dt.year == yr) & (df["datum"].dt.month == mo)]["umsatz"].sum()
-                if month_sum < _MIN_IST:
-                    ok = False
-                    break
-            if ok:
-                result.add(fil_nr)
-        return result
-
-    def _wt_shares_new(self, fil_nr: str, effective_start: date, ref_fil_set: set[str]) -> dict[int, float]:
-        """Weekday share of the new branch vs reference branches during [effective_start, base_end).
-
-        For public holidays the caller uses index 6 (Sunday).
-        """
+    def _ref_wt_sums(self, ref_fil_nrs: set[str]) -> dict[int, float]:
+        """Weekday IST sums for all reference branches over the full base period (computed once)."""
         e = self.e
         base_end = e.base_mask_end
-        eff_ts = pd.Timestamp(effective_start)
-
-        new_df = e._branch_base_ist(fil_nr)
-        new_df = new_df[(new_df["datum"] >= eff_ts) & (new_df["datum"] < base_end) & (new_df["umsatz"] >= _MIN_IST)]
-        new_by_wt: dict[int, float] = {w: 0.0 for w in range(7)}
-        if not new_df.empty:
-            for w, grp in new_df.groupby(new_df["datum"].dt.weekday):
-                new_by_wt[int(w)] = float(grp["umsatz"].sum())
-
-        ref_by_wt: dict[int, float] = {w: 0.0 for w in range(7)}
-        for ref_nr in ref_fil_set:
-            rdf = e._branch_base_ist(ref_nr)
-            rdf = rdf[(rdf["datum"] >= eff_ts) & (rdf["datum"] < base_end) & (rdf["umsatz"] > 0)]
-            if rdf.empty:
+        base_start_ts = pd.Timestamp(e.base_start)
+        result: dict[int, float] = {w: 0.0 for w in range(7)}
+        for fil_nr in ref_fil_nrs:
+            df = e._branch_base_ist(fil_nr)
+            df = df[(df["datum"] >= base_start_ts) & (df["datum"] < base_end) & (df["umsatz"] > 0)]
+            if df.empty:
                 continue
-            for w, grp in rdf.groupby(rdf["datum"].dt.weekday):
-                ref_by_wt[int(w)] += float(grp["umsatz"].sum())
+            for w, grp in df.groupby(df["datum"].dt.weekday):
+                result[int(w)] += float(grp["umsatz"].sum())
+        return result
 
-        return {w: (new_by_wt[w] / ref_by_wt[w] if ref_by_wt[w] > 0 else 0.0) for w in range(7)}
+    def _wt_shares_for_branch(self, fil_nr: str, ref_wt_sums: dict[int, float]) -> dict[int, float]:
+        """Weekday share of this branch relative to pre-computed ref weekday sums."""
+        e = self.e
+        df = e._branch_base_ist(fil_nr)
+        df = df[df["umsatz"] >= _MIN_IST]
+        new_by_wt: dict[int, float] = {w: 0.0 for w in range(7)}
+        if not df.empty:
+            for w, grp in df.groupby(df["datum"].dt.weekday):
+                new_by_wt[int(w)] = float(grp["umsatz"].sum())
+        return {w: (new_by_wt[w] / ref_wt_sums[w] if ref_wt_sums.get(w, 0.0) > 0 else 0.0)
+                for w in range(7)}
 
     # ── Wochentagsanteile (über das ganze Basisjahr) ──────────────────────
 
@@ -337,7 +251,7 @@ class PlanningEngine2:
     def plan_branch(self, fil_nr: str,
                     ref_day_budgets: dict[str, float] | None = None,
                     wt_shares: dict[int, float] | None = None,
-                    new_effective_start: date | None = None) -> list[DayPlan]:
+                    had_feiertag_ist: bool = False) -> list[DayPlan]:
         e = self.e
         fil = self.filialen.get(fil_nr, {"bundesland": "RP"})
         bl = _normalize_bl(fil.get("bundesland", "RP") or "RP")
@@ -381,8 +295,6 @@ class PlanningEngine2:
             day_meta[month] = metas
 
         # Jährlicher Durchschnitts-Tagesumsatz je Wochentag (nur Normaltage).
-        # d_w[w] = jährl. Gesamtumsatz × globalem Wochentagsanteil / Anzahl Basisjahr-Vorkommen.
-        # Konstellationseffekt je Monat: m0 + Δ × d_w → Jahressumme bleibt (fast) erhalten.
         R_annual = sum(m0.values())
         cnt_year_base = {w: sum(cnt_base_by_month[mo].get(w, 0) for mo in range(1, 13))
                          for w in range(7)}
@@ -441,16 +353,19 @@ class PlanningEngine2:
 
             for m in metas:
                 imputed_budget: float | None = None
-                if (ref_day_budgets is not None and wt_shares is not None
-                        and new_effective_start is not None
-                        and not m["closed"]):
-                    # Impute plan days whose mapped base date falls before the branch opened.
-                    base_d_check = m["base_d"]
-                    if base_d_check is not None and base_d_check < new_effective_start:
-                        ref_total = ref_day_budgets.get(m["d"].isoformat(), 0.0)
-                        # Public holidays use the Sunday weekday share (step 5).
-                        eff_wt = 6 if m["tagestyp"] == "feiertag" else m["wt"]
-                        imputed_budget = round(ref_total * wt_shares.get(eff_wt, 0.0), 2)
+                if ref_day_budgets is not None and wt_shares is not None and not m["closed"]:
+                    if m["base_ist"] == 0.0:
+                        is_feiertag = m["tagestyp"] == "feiertag"
+                        if is_feiertag:
+                            # Impute Feiertag only if branch had Feiertag revenue in base period.
+                            if had_feiertag_ist:
+                                ref_total = ref_day_budgets.get(m["d"].isoformat(), 0.0)
+                                imputed_budget = round(ref_total * wt_shares.get(6, 0.0), 2)
+                        else:
+                            # Normal day with missing base IST → impute via weekday share.
+                            ref_total = ref_day_budgets.get(m["d"].isoformat(), 0.0)
+                            eff_wt = m["wt"]
+                            imputed_budget = round(ref_total * wt_shares.get(eff_wt, 0.0), 2)
                 results.append(self._build_day(
                     fil_nr, bl, m, _m0, _m1, _m2, _m3, sft, sfer, s, n_open,
                     imputed_budget=imputed_budget))
@@ -499,7 +414,7 @@ class PlanningEngine2:
                 normalisierung=0.0,
             )
 
-        # Imputation for new-base branches: days before branch opened
+        # Imputation for branches with missing base IST on this day.
         if imputed_budget is not None:
             return DayPlan(
                 fil_nr=fil_nr, datum=d, wochentag=m["wt"], bundesland=bl,
@@ -554,25 +469,60 @@ class PlanningEngine2:
         by, bm = e.base_end_year, e.base_end_month
         plan_year = self.p.planjahr
 
-        # Detect branches that opened during the base period (need imputation).
-        new_branch_info: dict[str, tuple[date, set[str], dict[int, float]]] = {}
+        # Precompute monthly IST sums for all active branches in one vectorized pass.
+        active_set = set(active)
+        base_df = e.ist_df[
+            (e.ist_df["fil_nr"].isin(active_set))
+            & (e.ist_df["datum"] >= pd.Timestamp(e.base_start))
+            & (e.ist_df["datum"] < e.base_mask_end)
+        ].copy()
+        base_df["ym"] = base_df["datum"].dt.to_period("M")
+
+        all_monthly_ist: dict[str, dict[tuple[int, int], float]] = {}
+        for fil_nr, grp_df in base_df.groupby("fil_nr"):
+            mo_sums = grp_df.groupby("ym")["umsatz"].sum()
+            all_monthly_ist[str(fil_nr)] = {(p.year, p.month): float(v) for p, v in mo_sums.items()}
+
+        # All calendar months in the base period.
+        all_base_months: list[tuple[int, int]] = []
+        cur = e.base_start.replace(day=1)
+        base_end_d = e.base_mask_end.date()
+        while cur < base_end_d:
+            all_base_months.append((cur.year, cur.month))
+            nxt = cur.month + 1
+            cur = cur.replace(year=cur.year + (nxt - 1) // 12, month=(nxt - 1) % 12 + 1)
+
+        # Detect branches with IST gaps (at least one month 0, at least one month > 0).
         new_fil_nrs: set[str] = set()
         for fil_nr in active:
-            fil = self.filialen.get(fil_nr, {})
-            is_new, eff_start = self._detect_new_base_branch(fil_nr, fil)
-            if is_new and eff_start is not None:
+            mo = all_monthly_ist.get(fil_nr, {})
+            month_sums = [mo.get(ym, 0.0) for ym in all_base_months]
+            if any(s > 0 for s in month_sums) and any(s == 0.0 for s in month_sums):
                 new_fil_nrs.add(fil_nr)
-                new_branch_info[fil_nr] = (eff_start, set(), {})  # ref_set/shares filled below
 
-        # Build ref sets and weekday shares per new branch.
-        for fil_nr, (eff_start, _, _) in new_branch_info.items():
-            ref_set = self._ref_branches_for_new(eff_start, new_fil_nrs)
-            shares = self._wt_shares_new(fil_nr, eff_start, ref_set)
-            new_branch_info[fil_nr] = (eff_start, ref_set, shares)
+        # Bestandsfilialen = active branches without IST gaps, used as reference.
+        ref_fil_nrs: set[str] = set()
+        for fil_nr in active:
+            if fil_nr in new_fil_nrs:
+                continue
+            mo = all_monthly_ist.get(fil_nr, {})
+            month_sums = [mo.get(ym, 0.0) for ym in all_base_months]
+            if all(s > 0 for s in month_sums):
+                ref_fil_nrs.add(fil_nr)
 
-        # Pass 1: plan all Bestandsfilialen and plan-year-new branches.
+        # Precompute ref weekday sums ONCE for all new branches (key performance fix).
+        ref_wt_sums = self._ref_wt_sums(ref_fil_nrs)
+
+        # Per new branch: precompute weekday shares and Feiertag flag.
+        wt_shares_cache: dict[str, dict[int, float]] = {}
+        feiertag_cache: dict[str, bool] = {}
+        for fil_nr in new_fil_nrs:
+            wt_shares_cache[fil_nr] = self._wt_shares_for_branch(fil_nr, ref_wt_sums)
+            feiertag_cache[fil_nr] = self._branch_had_feiertag_ist(fil_nr)
+
+        # Pass 1: plan all Bestandsfilialen and plan-year-new branches (no imputation).
         out: list[DayPlan] = []
-        ref_results: dict[str, list[DayPlan]] = {}
+        ref_day_budgets: dict[str, float] = {}
         for fil_nr in active:
             if fil_nr in new_fil_nrs:
                 continue
@@ -580,29 +530,25 @@ class PlanningEngine2:
             eroeff_str = fil.get("eroeffnung")
             is_plan_year_new = bool(eroeff_str and date.fromisoformat(eroeff_str).year == plan_year)
             if not is_plan_year_new:
-                # Skip branches with no IST in the last base month (closed mid-period).
-                df = e._branch_base_ist(fil_nr)
-                last_ist = float(
-                    df[(df["datum"].dt.year == by) & (df["datum"].dt.month == bm)]["umsatz"].sum()
-                )
+                # Skip branches with no IST in the last base month.
+                last_ist = all_monthly_ist.get(fil_nr, {}).get((by, bm), 0.0)
                 if last_ist <= 0:
                     continue
             branch_results = self.plan_branch(fil_nr)
             out.extend(branch_results)
-            ref_results[fil_nr] = branch_results
-
-        # Pass 2: new-in-base branches — days before eff_start get imputed.
-        for fil_nr, (eff_start, ref_set, shares) in new_branch_info.items():
-            ref_day_budgets: dict[str, float] = {}
-            for ref_fil in ref_set:
-                for dp in ref_results.get(ref_fil, []):
+            # Accumulate ref day budgets for Pass 2.
+            if fil_nr in ref_fil_nrs:
+                for dp in branch_results:
                     iso = dp.datum.isoformat()
                     ref_day_budgets[iso] = ref_day_budgets.get(iso, 0.0) + dp.budget
+
+        # Pass 2: branches with IST gaps — days with base_ist == 0 get imputed.
+        for fil_nr in new_fil_nrs:
             branch_results = self.plan_branch(
                 fil_nr,
                 ref_day_budgets=ref_day_budgets,
-                wt_shares=shares,
-                new_effective_start=eff_start,
+                wt_shares=wt_shares_cache[fil_nr],
+                had_feiertag_ist=feiertag_cache[fil_nr],
             )
             out.extend(branch_results)
 

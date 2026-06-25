@@ -106,7 +106,7 @@ if st.session_state.get("_do_plan2"):
         n_skip  = len(selected_fils) - n_total
 
         progress_bar = st.progress(0, text="Starte Berechnung…")
-        progress_bar.progress(10, text="Neue Filialen werden erkannt und Referenzfilialen berechnet…")
+        progress_bar.progress(10, text="Berechnung läuft…")
         results = engine2.run(aktive_fils)
         progress_bar.progress(90, text="Speichere Ergebnisse…")
         progress_bar.empty()
