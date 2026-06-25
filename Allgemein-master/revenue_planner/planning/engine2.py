@@ -285,6 +285,13 @@ class PlanningEngine2:
                 closed, tagestyp, ft_name, fer_art = self._closed_and_type(fil_nr, fil, d, bl)
                 base_d = self._mapping_base_date(fil_nr, bl, month, d)
                 base_ist = e._ist_on(fil_nr, base_d) if base_d else 0.0
+                # Blackout: base dates within 4 weeks of opening are atypical
+                # (opening-day effect) and must not be used as reference.
+                eroeff_str = fil.get("eroeffnung")
+                if base_ist > 0 and eroeff_str and base_d:
+                    _eroeff_d = date.fromisoformat(eroeff_str)
+                    if base_d < _eroeff_d + timedelta(weeks=4):
+                        base_ist = 0.0
                 art = self._mapping_art(bl, d)
                 metas.append({
                     "d": d, "wt": d.weekday(), "closed": closed,
@@ -555,8 +562,7 @@ class PlanningEngine2:
         done = 0
         for fil_nr in active:
             if fil_nr in new_fil_nrs:
-                done += 1
-                continue
+                continue  # counted and callback-called in Pass 2
             fil = self.filialen.get(fil_nr, {})
             eroeff_str = fil.get("eroeffnung")
             is_plan_year_new = bool(eroeff_str and date.fromisoformat(eroeff_str).year == plan_year)
