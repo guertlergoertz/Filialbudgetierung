@@ -105,8 +105,26 @@ if st.session_state.get("_do_plan2"):
         n_total = len(aktive_fils)
         n_skip  = len(selected_fils) - n_total
 
-        with st.spinner(f"Berechnung läuft… ({n_total} Filialen)"):
-            results = engine2.run(aktive_fils)
+        progress_bar = st.progress(0, text=f"Starte Berechnung… (0 / {n_total})")
+        _t_start = _time.monotonic()
+
+        def _on_progress(done: int, total: int, fil_nr: str):
+            pct = int(done / total * 100) if total else 100
+            elapsed = _time.monotonic() - _t_start
+            if done > 1 and done < total:
+                avg_s = elapsed / done
+                remaining_s = avg_s * (total - done)
+                _min, _sec = divmod(int(remaining_s), 60)
+                time_hint = f" — noch ca. {_min}:{_sec:02d} min" if _min else f" — noch ca. {_sec} s"
+            else:
+                time_hint = ""
+            progress_bar.progress(
+                pct,
+                text=f"Filiale {fil_nr} … {pct} % ({done} / {total}){time_hint}",
+            )
+
+        results = engine2.run(aktive_fils, progress_callback=_on_progress)
+        progress_bar.empty()
 
         conn.execute(
             "DELETE FROM planung2 WHERE CAST(strftime('%Y', datum) AS INTEGER)=?",
