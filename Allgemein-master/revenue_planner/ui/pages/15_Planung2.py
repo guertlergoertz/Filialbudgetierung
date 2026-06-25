@@ -106,7 +106,7 @@ if st.session_state.get("_do_plan2"):
         n_skip  = len(selected_fils) - n_total
 
         progress_bar = st.progress(0, text="Starte Berechnung…")
-        progress_bar.progress(10, text="Neue Filialen werden erkannt und Referenzfilialen berechnet…")
+        progress_bar.progress(10, text="Berechnung läuft…")
         results = engine2.run(aktive_fils)
         progress_bar.progress(90, text="Speichere Ergebnisse…")
         progress_bar.empty()
@@ -125,11 +125,11 @@ if st.session_state.get("_do_plan2"):
         skip_hint = f" ({n_skip} gesperrt/inaktiv übersprungen)" if n_skip else ""
         st.success(f"✅ {n_total} Filiale(n){skip_hint} — {len(results):,} Tage berechnet.")
         if korr_df.empty:
-            st.info(f"Keine Ausreißer gefunden (Schwellwert: ±{SCHWELLWERT_PCT:.0f} %).")
+            st.info(f"Keine Ausreißer gefunden (Schwellwert: ±{SCHWELLWERT_PCT:.0f} %).")
         else:
             st.warning(
                 f"{len(korr_df)} Tage wurden durch die Wochentagsvalidierung korrigiert "
-                f"(Schwellwert: ±{SCHWELLWERT_PCT:.0f} %). Details in **Herleitung (L2)**."
+                f"(Schwellwert: ±{SCHWELLWERT_PCT:.0f} %). Details in **Herleitung (L2)**."
             )
         st.session_state["last_plan2_results"] = results
         st.session_state["last_plan2_jahr"] = planjahr
