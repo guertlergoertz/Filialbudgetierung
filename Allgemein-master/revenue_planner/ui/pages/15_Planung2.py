@@ -105,21 +105,10 @@ if st.session_state.get("_do_plan2"):
         n_total = len(aktive_fils)
         n_skip  = len(selected_fils) - n_total
 
-        results: list[DayPlan] = []
         progress_bar = st.progress(0, text="Starte Berechnung…")
-        _t_start = _time.monotonic()
-        for i, fil_nr in enumerate(aktive_fils, start=1):
-            pct = int(i / n_total * 100) if n_total else 100
-            elapsed = _time.monotonic() - _t_start
-            if i > 1 and n_total > i:
-                avg_s = elapsed / (i - 1)
-                remaining_s = avg_s * (n_total - i + 1)
-                _min, _sec = divmod(int(remaining_s), 60)
-                _time_hint = f" — noch ca. {_min}:{_sec:02d} min" if _min else f" — noch ca. {_sec} s"
-            else:
-                _time_hint = ""
-            progress_bar.progress(pct, text=f"Filiale {fil_nr} … {pct} % ({i}/{n_total}){_time_hint}")
-            results.extend(engine2.plan_branch(fil_nr))
+        progress_bar.progress(10, text="Berechnung läuft…")
+        results = engine2.run(aktive_fils)
+        progress_bar.progress(90, text="Speichere Ergebnisse…")
         progress_bar.empty()
 
         conn.execute(
@@ -144,6 +133,7 @@ if st.session_state.get("_do_plan2"):
             )
         st.session_state["last_plan2_results"] = results
         st.session_state["last_plan2_jahr"] = planjahr
+        st.session_state.pop(f"herleitung2_data_{gmbh}_{planjahr}", None)
         st.rerun()
     except Exception as e:
         if "progress_bar" in dir():
