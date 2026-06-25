@@ -83,6 +83,7 @@ class DayPlan:
     ist_vj: float
     # additive effects
     eff_oeffnung: float
+    eff_hochrechnung: float     # imputation for days without base IST (new branches)
     eff_verteilung: float
     eff_wochentag: float
     eff_preis: float
@@ -774,7 +775,7 @@ class PlanningEngine:
             return DayPlan(
                 fil_nr=fil_nr, datum=r["d"], wochentag=r["wt"], bundesland=bl,
                 ist_vj=round(r["ist_vj"], 2),
-                eff_oeffnung=round(eff_oeffnung, 2), eff_verteilung=0.0,
+                eff_oeffnung=round(eff_oeffnung, 2), eff_hochrechnung=0.0, eff_verteilung=0.0,
                 eff_wochentag=0.0, eff_preis=0.0, eff_ferien=0.0,
                 eff_feiertag=0.0, eff_norm=0.0, budget=0.0,
                 monat_basis=round(monat_basis, 2), monat_hoch=round(monat_hoch, 2),
@@ -807,6 +808,7 @@ class PlanningEngine:
             fil_nr=fil_nr, datum=r["d"], wochentag=r["wt"], bundesland=bl,
             ist_vj=round(r["ist_vj"], 2),
             eff_oeffnung=0.0,
+            eff_hochrechnung=0.0,
             eff_verteilung=round(eff_verteilung, 2),
             eff_wochentag=round(eff_wochentag, 2),
             eff_preis=round(eff_preis, 2),

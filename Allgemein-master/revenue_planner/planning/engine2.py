@@ -26,13 +26,14 @@ Additive Effekt-Zerlegung je Tag (exakt, wie Logik 1, damit Herleitung &
 Planungsgenauigkeit identisch funktionieren):
 
     budget = ist_vj
-           + eff_oeffnung      (geschlossene Tage: -ist_vj)
-           + eff_verteilung    (Normierung Roh-Basistag → Monatsanteil)
-           + eff_wochentag     (Wochentags-Konstellationseffekt)
-           + eff_preis         (Preisanpassung / Wachstum)
-           + eff_ferien        (Ferien-Monatsverschiebung)
-           + eff_feiertag      (Feiertag-/Sondertag-Monatsverschiebung)
-           + eff_norm          (Rundungsrest)
+           + eff_oeffnung       (geschlossene Tage: -ist_vj)
+           + eff_hochrechnung   (Imputation für Tage ohne Basis-IST via Wochentagsanteile)
+           + eff_verteilung     (Normierung Roh-Basistag → Monatsanteil)
+           + eff_wochentag      (Wochentags-Konstellationseffekt)
+           + eff_preis          (Preisanpassung / Wachstum)
+           + eff_ferien         (Ferien-Monatsverschiebung)
+           + eff_feiertag       (Feiertag-/Sondertag-Monatsverschiebung)
+           + eff_norm           (Rundungsrest)
 """
 
 from __future__ import annotations
@@ -417,7 +418,8 @@ class PlanningEngine2:
         if m["closed"]:
             return DayPlan(
                 fil_nr=fil_nr, datum=d, wochentag=m["wt"], bundesland=bl,
-                ist_vj=ist_vj, eff_oeffnung=round(-ist_vj, 2), eff_verteilung=0.0,
+                ist_vj=ist_vj, eff_oeffnung=round(-ist_vj, 2),
+                eff_hochrechnung=0.0, eff_verteilung=0.0,
                 eff_wochentag=0.0, eff_preis=0.0, eff_ferien=0.0,
                 eff_feiertag=0.0, eff_norm=0.0, budget=0.0,
                 monat_basis=round(_m0, 2), monat_hoch=round(_m1, 2),
@@ -426,12 +428,14 @@ class PlanningEngine2:
                 normalisierung=0.0,
             )
 
-        # Imputation for branches with missing base IST on this day.
+        # Imputation for branches with missing base IST: budget goes into
+        # eff_hochrechnung (separate column), not eff_verteilung.
         if imputed_budget is not None:
             return DayPlan(
                 fil_nr=fil_nr, datum=d, wochentag=m["wt"], bundesland=bl,
                 ist_vj=0.0, eff_oeffnung=0.0,
-                eff_verteilung=imputed_budget,
+                eff_hochrechnung=imputed_budget,
+                eff_verteilung=0.0,
                 eff_wochentag=0.0, eff_preis=0.0, eff_ferien=0.0,
                 eff_feiertag=0.0, eff_norm=0.0, budget=imputed_budget,
                 monat_basis=round(_m0, 2), monat_hoch=round(_m1, 2),
@@ -476,7 +480,8 @@ class PlanningEngine2:
         norm = round(budget / m["base_ist"], 4) if m["base_ist"] else 0.0
         return DayPlan(
             fil_nr=fil_nr, datum=d, wochentag=m["wt"], bundesland=bl,
-            ist_vj=ist_vj, eff_oeffnung=0.0, eff_verteilung=eff_verteilung,
+            ist_vj=ist_vj, eff_oeffnung=0.0, eff_hochrechnung=0.0,
+            eff_verteilung=eff_verteilung,
             eff_wochentag=eff_wochentag, eff_preis=eff_preis,
             eff_ferien=eff_ferien, eff_feiertag=eff_feiertag,
             eff_norm=eff_norm, budget=budget,
@@ -613,7 +618,8 @@ class PlanningEngine2:
         rows = [{
             "fil_nr": r.fil_nr, "datum": r.datum.isoformat(), "wochentag": r.wochentag,
             "bundesland": r.bundesland, "ist_vj": r.ist_vj,
-            "eff_oeffnung": r.eff_oeffnung, "eff_verteilung": r.eff_verteilung,
+            "eff_oeffnung": r.eff_oeffnung, "eff_hochrechnung": r.eff_hochrechnung,
+            "eff_verteilung": r.eff_verteilung,
             "eff_wochentag": r.eff_wochentag, "eff_preis": r.eff_preis,
             "eff_ferien": r.eff_ferien, "eff_feiertag": r.eff_feiertag,
             "eff_norm": r.eff_norm, "budget": r.budget,
@@ -626,14 +632,14 @@ class PlanningEngine2:
         self.conn.executemany(
             """INSERT OR REPLACE INTO planung2
                (fil_nr, datum, wochentag, bundesland, ist_vj,
-                eff_oeffnung, eff_verteilung, eff_wochentag, eff_preis,
+                eff_oeffnung, eff_hochrechnung, eff_verteilung, eff_wochentag, eff_preis,
                 eff_ferien, eff_feiertag, eff_norm, budget,
                 monat_basis, monat_hoch, monat_plan,
                 monatsumsatz_ist_hoch, monatsumsatz_plan, tagesumsatz_plan,
                 liefer_plan, gesamt_plan, tagestyp, feiertag_name, ferien_art, normalisierung)
                VALUES
                (:fil_nr, :datum, :wochentag, :bundesland, :ist_vj,
-                :eff_oeffnung, :eff_verteilung, :eff_wochentag, :eff_preis,
+                :eff_oeffnung, :eff_hochrechnung, :eff_verteilung, :eff_wochentag, :eff_preis,
                 :eff_ferien, :eff_feiertag, :eff_norm, :budget,
                 :monat_basis, :monat_hoch, :monat_plan,
                 :monatsumsatz_ist_hoch, :monatsumsatz_plan, :tagesumsatz_plan,

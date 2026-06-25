@@ -423,6 +423,8 @@ def _migrate(conn: sqlite3.Connection):
     plan2_cols = {row[1] for row in conn.execute("PRAGMA table_info(planung2)").fetchall()}
     if plan2_cols and "eff_validierung" not in plan2_cols:
         conn.execute("ALTER TABLE planung2 ADD COLUMN eff_validierung REAL")
+    if plan2_cols and "eff_hochrechnung" not in plan2_cols:
+        conn.execute("ALTER TABLE planung2 ADD COLUMN eff_hochrechnung REAL")
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS planwert_korrekturen2 (

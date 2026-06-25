@@ -65,7 +65,7 @@ def _render_legende():
    Dreisatz proportional auf alle Filialen verteilt (**+ Validierung**).
 
 ```
-Budget = IST Basis + Öffnung + Verteilung + Wochentag + Preis + Ferien + Feiertag + Validierung
+Budget = IST Basis + Öffnung + Hochrechnung + Verteilung + Wochentag + Preis + Ferien + Feiertag + Validierung
 ```
 
 Diese Zerlegung addiert sich durch einfache Summation auf jede Zeit- und
@@ -95,14 +95,14 @@ if _cache_key not in st.session_state:
     with st.spinner("Planungsdaten werden geladen…"):
         _df_raw = pd.read_sql(
             "SELECT fil_nr, datum, bundesland, wochentag, ist_vj, "
-            "eff_oeffnung, eff_wochentag, eff_preis, eff_ferien, eff_feiertag, "
+            "eff_oeffnung, eff_hochrechnung, eff_wochentag, eff_preis, eff_ferien, eff_feiertag, "
             "eff_norm, eff_verteilung, eff_validierung, budget, "
             "tagestyp, feiertag_name, ferien_art "
             "FROM planung2 WHERE CAST(strftime('%Y', datum) AS INTEGER)=?",
             conn, params=(planjahr,),
         )
 
-        eff_cols = ["ist_vj", "eff_oeffnung", "eff_wochentag",
+        eff_cols = ["ist_vj", "eff_oeffnung", "eff_hochrechnung", "eff_wochentag",
                     "eff_preis", "eff_ferien", "eff_feiertag", "eff_validierung", "budget"]
         for col in eff_cols + ["eff_norm", "eff_verteilung"]:
             if col not in _df_raw.columns:
@@ -204,7 +204,7 @@ if df_all.empty:
     _render_legende()
     st.stop()
 
-eff_cols = ["ist_vj", "eff_oeffnung", "eff_verteilung", "eff_norm",
+eff_cols = ["ist_vj", "eff_oeffnung", "eff_hochrechnung", "eff_verteilung", "eff_norm",
             "eff_wochentag", "eff_preis", "eff_ferien", "eff_feiertag", "eff_validierung", "budget"]
 
 # ── Filter ─────────────────────────────────────────────────────────────────────────────────
@@ -486,6 +486,7 @@ agg["Abw. %"] = agg.apply(
 rename = {
     "fil_nr": "Filiale", "bundesland": "Bundesland",
     "ist_vj": "IST Basis", "eff_oeffnung": "+ Öffnung",
+    "eff_hochrechnung": "+ Hochrechnung",
     "eff_verteilung": "+ Verteilung",
     "eff_wochentag": "+ Wochentag", "eff_preis": "+ Preis", "eff_ferien": "+ Ferien",
     "eff_feiertag": "+ Feiertag", "eff_validierung": "+ Validierung",
@@ -515,9 +516,9 @@ if zeit_ebene == "Tag":
 else:
     lead = [c for c in ["Filiale", "Bundesland", "Zeit"] if c in disp.columns]
 
-ordered = lead + ["IST Basis", "+ Öffnung", "+ Verteilung", "+ Wochentag", "+ Preis",
-                  "+ Ferien", "+ Feiertag", "+ Validierung", "= Budget",
-                  "= IST", "Abw. €", "Abw. %"]
+ordered = lead + ["IST Basis", "+ Öffnung", "+ Hochrechnung", "+ Verteilung",
+                  "+ Wochentag", "+ Preis", "+ Ferien", "+ Feiertag",
+                  "+ Validierung", "= Budget", "= IST", "Abw. €", "Abw. %"]
 disp = disp[[c for c in ordered if c in disp.columns]]
 
 # ── Kennzahlen ──────────────────────────────────────────────────────────────────────────────
@@ -549,8 +550,9 @@ st.caption(
 st.divider()
 
 # ── Tabelle ───────────────────────────────────────────────────────────────────────────────────
-num_cols = ["IST Basis", "+ Öffnung", "+ Verteilung", "+ Wochentag", "+ Preis",
-            "+ Ferien", "+ Feiertag", "+ Validierung", "= Budget", "= IST", "Abw. €"]
+num_cols = ["IST Basis", "+ Öffnung", "+ Hochrechnung", "+ Verteilung",
+            "+ Wochentag", "+ Preis", "+ Ferien", "+ Feiertag",
+            "+ Validierung", "= Budget", "= IST", "Abw. €"]
 
 def _fmt_de(val):
     try:
@@ -595,8 +597,10 @@ col_cfg = {
         help="Tagesumsatz des Basiszeitraum-Referenztags (via Datumsmapping)"),
     "+ Öffnung":      st.column_config.TextColumn("+ Öffnung",
         help="Effekt geschlossener Tage (geschlossen → −IST Basis)"),
+    "+ Hochrechnung": st.column_config.TextColumn("+ Hochrechnung",
+        help="Imputation für Tage ohne Basis-IST (Neueröffnungen): Budget aus Wochentagsanteil × Bestandsfilialen-Summe"),
     "+ Verteilung":   st.column_config.TextColumn("+ Verteilung",
-        help="Tagesverteilung: Anteil des Tages am Monatsumsatz (inkl. Normalisierungskorrektur)"),
+        help="Tagesverteilung: Normierung des Basis-IST-Anteils zum Monatsumsatz (nur Tage mit vorhandenem Basis-IST)"),
     "+ Wochentag":    st.column_config.TextColumn("+ Wochentag",
         help="Wochentags-Konstellationseffekt: andere Mo…So-Verteilung im Planjahr"),
     "+ Preis":        st.column_config.TextColumn("+ Preis",
