@@ -177,6 +177,7 @@ class PlanningEngine:
     def __init__(self, conn: sqlite3.Connection, params: PlanParams):
         self.conn = conn
         self.p = params
+        self._ist_branch_cache: dict[str, pd.DataFrame] = {}
         self._compute_base_window()
         self._load_reference_data()
 
@@ -349,10 +350,12 @@ class PlanningEngine:
     # ── Per-branch IST helpers (Basiszeitraum) ────────────────────────────
 
     def _branch_base_ist(self, fil_nr: str) -> pd.DataFrame:
-        df = self.ist_df[self.ist_df["fil_nr"] == fil_nr]
-        df = df[(df["datum"] >= pd.Timestamp(self.base_start)) &
-                (df["datum"] < self.base_mask_end)]
-        return df.copy()
+        if fil_nr not in self._ist_branch_cache:
+            df = self.ist_df[self.ist_df["fil_nr"] == fil_nr]
+            df = df[(df["datum"] >= pd.Timestamp(self.base_start)) &
+                    (df["datum"] < self.base_mask_end)]
+            self._ist_branch_cache[fil_nr] = df.reset_index(drop=True)
+        return self._ist_branch_cache[fil_nr]
 
     def _weekday_avg(self, fil_nr: str, fil: dict) -> dict[int, float]:
         """Ø Umsatz je Wochentag im Basiszeitraum (nur offene Tage, ohne erste 4 Wochen nach Eröffnung)."""
