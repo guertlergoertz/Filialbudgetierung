@@ -6,6 +6,16 @@
 
 ## Behoben ✅
 
+- **Logik 2 Eröffnungs-Blackout für Basistage + Ladebalken-Overcounting** (06/2026):
+  `plan_branch()`: Nach `_ist_on()` wird `base_ist` auf 0 gesetzt, wenn `base_d` innerhalb
+  der ersten 4 Wochen nach `eroeffnung` der Filiale liegt (gleicher Cutoff wie `_weekday_share`).
+  Opening-Tage haben atypisch hohe/niedrige Umsätze (Neueröffnungseffekt) und dürfen nicht
+  als Referenz dienen; betroffene Plantage werden stattdessen per Imputation hochgerechnet.
+  Behoben: große negative `eff_verteilung` an 26.–28.02.2026 (Fil. 313, Mapping auf
+  Eröffnungswoche), falsche Abzüge an Faschingstagen 2026. `run()`: `done += 1` in Pass 1
+  für `new_fil_nrs` entfernt — sie wurden ohne Callback vorgezählt, sodass `done > n_total`
+  in Pass 2 entstand und der Ladebalken >100 % anzeigte.
+
 - **Datumsmapping: Normaltage dürfen nicht auf VJ-Feiertagstage/Sondertage landen** (06/2026):
   `_vj_special_bl` (Feiertagstage + Sondertage im Basiszeitraum, per BL) in `datumsmapping.py`
   aufgebaut und im `_avoid`-Prädikat (Schritt 6, ISO-KW-Fallback) ergänzt. Ohne Fix landete z. B.
