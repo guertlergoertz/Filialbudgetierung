@@ -65,8 +65,9 @@ def _render_legende():
    Dreisatz proportional auf alle Filialen verteilt (**+ Validierung**).
 
 ```
-Budget = IST Basis + Öffnung + Hochrechnung + Verteilung + Wochentag + Preis + Ferien + Feiertag + Validierung
+Budget = IST Basis + Öffnung + Hochrechnung + Wochentag + Preis + Ferien + Feiertag + Validierung
 ```
+*(+ Verteilung und + Norm sind interne Normierungsspalten — in der DB vorhanden, hier ausgeblendet)*
 
 Diese Zerlegung addiert sich durch einfache Summation auf jede Zeit- und
 Aggregationsebene (Woche / Monat / Jahr, Filiale / Bundesland / Gesamt).
@@ -516,7 +517,7 @@ if zeit_ebene == "Tag":
 else:
     lead = [c for c in ["Filiale", "Bundesland", "Zeit"] if c in disp.columns]
 
-ordered = lead + ["IST Basis", "+ Öffnung", "+ Hochrechnung", "+ Verteilung",
+ordered = lead + ["IST Basis", "+ Öffnung", "+ Hochrechnung",
                   "+ Wochentag", "+ Preis", "+ Ferien", "+ Feiertag",
                   "+ Validierung", "= Budget", "= IST", "Abw. €", "Abw. %"]
 disp = disp[[c for c in ordered if c in disp.columns]]
@@ -545,12 +546,14 @@ m4.metric("Δ %", f"{(tot_bud - tot_vj) / tot_vj * 100:+.1f} %" if tot_vj else "
 st.caption(
     "Lesart: **IST Basis** = tatsächlicher IST-Umsatz des Referenztags aus dem Basiszeitraum. "
     "Jede `+`-Spalte zeigt den additiven Effekt in €. Summe ergibt **= Budget**. "
-    "**+ Validierung** = Korrektur durch die Wochentagsvalidierung (0 = kein Ausreißer)."
+    "**+ Hochrechnung** = imputiertes Budget für Tage ohne Basis-IST (Neueröffnungen). "
+    "**+ Validierung** = Korrektur durch die Wochentagsvalidierung (0 = kein Ausreißer). "
+    "Interne Normierungsspalten (Verteilung, Norm) sind ausgeblendet."
 )
 st.divider()
 
 # ── Tabelle ───────────────────────────────────────────────────────────────────────────────────
-num_cols = ["IST Basis", "+ Öffnung", "+ Hochrechnung", "+ Verteilung",
+num_cols = ["IST Basis", "+ Öffnung", "+ Hochrechnung",
             "+ Wochentag", "+ Preis", "+ Ferien", "+ Feiertag",
             "+ Validierung", "= Budget", "= IST", "Abw. €"]
 
