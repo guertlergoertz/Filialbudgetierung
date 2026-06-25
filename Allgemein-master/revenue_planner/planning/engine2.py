@@ -459,7 +459,13 @@ class PlanningEngine2:
 
     # ── Full run / persist ────────────────────────────────────────────────
 
-    def run(self, fil_nrs: list[str] | None = None) -> list[DayPlan]:
+    def run(self, fil_nrs: list[str] | None = None,
+            progress_callback=None) -> list[DayPlan]:
+        """Run planning for all (or selected) branches.
+
+        progress_callback(done: int, total: int, fil_nr: str) is called after
+        each branch is processed — use it to update a UI progress indicator.
+        """
         targets = fil_nrs if fil_nrs else list(self.filialen.keys())
         active = [f for f in targets
                   if not (self.filialen.get(f, {}).get("flag_gesperrt")
@@ -523,8 +529,11 @@ class PlanningEngine2:
         # Pass 1: plan all Bestandsfilialen and plan-year-new branches (no imputation).
         out: list[DayPlan] = []
         ref_day_budgets: dict[str, float] = {}
+        n_total = len(active)
+        done = 0
         for fil_nr in active:
             if fil_nr in new_fil_nrs:
+                done += 1
                 continue
             fil = self.filialen.get(fil_nr, {})
             eroeff_str = fil.get("eroeffnung")
@@ -533,6 +542,9 @@ class PlanningEngine2:
                 # Skip branches with no IST in the last base month.
                 last_ist = all_monthly_ist.get(fil_nr, {}).get((by, bm), 0.0)
                 if last_ist <= 0:
+                    done += 1
+                    if progress_callback:
+                        progress_callback(done, n_total, fil_nr)
                     continue
             branch_results = self.plan_branch(fil_nr)
             out.extend(branch_results)
@@ -541,6 +553,9 @@ class PlanningEngine2:
                 for dp in branch_results:
                     iso = dp.datum.isoformat()
                     ref_day_budgets[iso] = ref_day_budgets.get(iso, 0.0) + dp.budget
+            done += 1
+            if progress_callback:
+                progress_callback(done, n_total, fil_nr)
 
         # Pass 2: branches with IST gaps — days with base_ist == 0 get imputed.
         for fil_nr in new_fil_nrs:
@@ -551,6 +566,9 @@ class PlanningEngine2:
                 had_feiertag_ist=feiertag_cache[fil_nr],
             )
             out.extend(branch_results)
+            done += 1
+            if progress_callback:
+                progress_callback(done, n_total, fil_nr)
 
         return out
 
