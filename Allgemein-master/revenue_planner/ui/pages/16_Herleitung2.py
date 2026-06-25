@@ -34,12 +34,9 @@ def _render_legende():
 4. **Sondertage/Feiertage/Ferien:** wirken als Auf-/Abschlag und verschieben den
    Monatsumsatz nur dann zwischen Monaten, wenn der Tag im Budgetjahr in einen
    anderen Monat fällt als im Basisjahr (**+ Feiertag** / **+ Ferien**).
-5. **Verteilung auf Tage (**+ Verteilung**):** der fertige Monatsumsatz wird über die Anteile
-   der via Datumsmapping bestimmten Basistage am Basismonatsumsatz auf die einzelnen Tage
-   verteilt. Enthält auch die Normalisierungskorrektur, damit Monatssummen exakt stimmen.
-   **Filialen mit Umsatzlücken im Basiszeitraum:** Filialen, die an manchen Tagen keinen
-   oder nur sehr geringen Basisumsatz (< 100 €) hatten (z. B. Neueröffnungen, vorübergehend
-   geschlossene Filialen), werden für diese fehlenden Tage über Bestandsfilialen hochgerechnet.
+5. **Hochrechnung (+ Hochrechnung):** Filialen mit Umsatzlücken im Basiszeitraum
+   (z. B. Neueröffnungen, vorübergehend geschlossene Filialen) werden für fehlende Tage
+   über Bestandsfilialen hochgerechnet.
    Voraussetzung: mindestens 21 Tage mit Umsatz ≥ 100 € im Basiszeitraum.
 
    1. **Auswertungszeitraum:** Ab dem ersten Tag mit Umsatz ≥ 100 € bis zum Ende des
@@ -67,7 +64,7 @@ def _render_legende():
 ```
 Budget = IST Basis + Öffnung + Hochrechnung + Wochentag + Preis + Ferien + Feiertag + Validierung
 ```
-*(+ Verteilung und + Norm sind interne Normierungsspalten — in der DB vorhanden, hier ausgeblendet)*
+*(+ Verteilung und + Norm sind in der DB vorhanden, werden aber immer als 0 geschrieben und hier nicht angezeigt)*
 
 Diese Zerlegung addiert sich durch einfache Summation auf jede Zeit- und
 Aggregationsebene (Woche / Monat / Jahr, Filiale / Bundesland / Gesamt).
@@ -97,7 +94,7 @@ if _cache_key not in st.session_state:
         _df_raw = pd.read_sql(
             "SELECT fil_nr, datum, bundesland, wochentag, ist_vj, "
             "eff_oeffnung, eff_hochrechnung, eff_wochentag, eff_preis, eff_ferien, eff_feiertag, "
-            "eff_norm, eff_verteilung, eff_validierung, budget, "
+            "eff_validierung, budget, "
             "tagestyp, feiertag_name, ferien_art "
             "FROM planung2 WHERE CAST(strftime('%Y', datum) AS INTEGER)=?",
             conn, params=(planjahr,),
@@ -105,7 +102,7 @@ if _cache_key not in st.session_state:
 
         eff_cols = ["ist_vj", "eff_oeffnung", "eff_hochrechnung", "eff_wochentag",
                     "eff_preis", "eff_ferien", "eff_feiertag", "eff_validierung", "budget"]
-        for col in eff_cols + ["eff_norm", "eff_verteilung"]:
+        for col in eff_cols:
             if col not in _df_raw.columns:
                 _df_raw[col] = 0.0
             _df_raw[col] = pd.to_numeric(_df_raw[col], errors="coerce").fillna(0.0)
@@ -205,7 +202,7 @@ if df_all.empty:
     _render_legende()
     st.stop()
 
-eff_cols = ["ist_vj", "eff_oeffnung", "eff_hochrechnung", "eff_verteilung", "eff_norm",
+eff_cols = ["ist_vj", "eff_oeffnung", "eff_hochrechnung",
             "eff_wochentag", "eff_preis", "eff_ferien", "eff_feiertag", "eff_validierung", "budget"]
 
 # ── Filter ─────────────────────────────────────────────────────────────────────────────────
@@ -488,7 +485,6 @@ rename = {
     "fil_nr": "Filiale", "bundesland": "Bundesland",
     "ist_vj": "IST Basis", "eff_oeffnung": "+ Öffnung",
     "eff_hochrechnung": "+ Hochrechnung",
-    "eff_verteilung": "+ Verteilung",
     "eff_wochentag": "+ Wochentag", "eff_preis": "+ Preis", "eff_ferien": "+ Ferien",
     "eff_feiertag": "+ Feiertag", "eff_validierung": "+ Validierung",
     "budget": "= Budget",
@@ -501,10 +497,7 @@ if zeit_ebene == "Tag":
     rename["_tagesinfo"] = "Tagesinfo"
     rename["ferien_art"] = "Ferien"
 
-# eff_norm (hidden per rule) wird in eff_verteilung eingerechnet, damit die angezeigte Summe = Budget
-agg["eff_verteilung"] = agg["eff_verteilung"].fillna(0) + agg["eff_norm"].fillna(0)
-
-drop_cols = ["_sort", "eff_norm", "_budget_for_ist", "_iso", "_daytype", "_fil_typ"] + [
+drop_cols = ["_sort", "_budget_for_ist", "_iso", "_daytype", "_fil_typ"] + [
     c for c in ["wochentag", "tagestyp", "feiertag_name"] if c in agg.columns and zeit_ebene == "Tag"
 ]
 if zeit_ebene != "Tag":

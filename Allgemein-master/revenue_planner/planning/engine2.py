@@ -22,18 +22,19 @@ Vorgehen (im Gegensatz zu Logik 1, die rein tagesbasiert hochrechnet):
     via Datumsmapping bestimmten Basistage am Basismonatsumsatz auf die einzelnen
     Budgettage verteilt (jeder Basistag → %-Anteil → Plantag × Monatsumsatz).
 
-Additive Effekt-Zerlegung je Tag (exakt, wie Logik 1, damit Herleitung &
+Additive Effekt-Zerlegung je Tag (exakt, damit Herleitung &
 Planungsgenauigkeit identisch funktionieren):
 
     budget = ist_vj
            + eff_oeffnung       (geschlossene Tage: -ist_vj)
            + eff_hochrechnung   (Imputation für Tage ohne Basis-IST via Wochentagsanteile)
-           + eff_verteilung     (Normierung Roh-Basistag → Monatsanteil)
-           + eff_wochentag      (Wochentags-Konstellationseffekt)
+           + eff_wochentag      (Wochentags-Konstellationseffekt; absorbiert auch Verteilungsterm)
            + eff_preis          (Preisanpassung / Wachstum)
            + eff_ferien         (Ferien-Monatsverschiebung)
            + eff_feiertag       (Feiertag-/Sondertag-Monatsverschiebung)
-           + eff_norm           (Rundungsrest)
+
+    eff_verteilung und eff_norm werden immer als 0.0 geschrieben (Spalten bleiben
+    im Schema für Rückwärtskompatibilität, sind aber rechnerisch leer).
 """
 
 from __future__ import annotations
@@ -337,11 +338,7 @@ class PlanningEngine2:
                 bucket[month] += markup        # Budgetmonat erhält Auf-/Abschlag
                 if 1 <= base_d.month <= 12:
                     bucket[base_d.month] -= markup  # Ursprungsmonat verliert ihn
-                # Store neigh so _build_day can normalise eff_verteilung:
-                # without this, eff_verteilung = w*_m0 - base_ist would be hugely
-                # negative because base_ist is from a different month than _m0.
-                m["neigh_ref"] = neigh
-                m["shift_bucket"] = "ft" if is_ft else "fer"
+                # (neigh computed but only used for shift magnitude; no day-level storage needed)
 
         # Phase 3: Monatsumsatz finalisieren + auf Tage verteilen
         results: list[DayPlan] = []
@@ -451,40 +448,24 @@ class PlanningEngine2:
             w = (1.0 / n_open) if n_open else 0.0
 
         budget = round(w * _m3, 2)
-        # For cross-month special days (Feiertagstag/Sondertag/Ferien where
-        # base_d.month ≠ plan_month), Phase 2 stored neigh_ref = neighbour avg.
-        # Using neigh_ref for eff_verteilung avoids a huge negative value caused
-        # by ist_vj (from the special day's month) diverging from w*_m0 (of the
-        # plan month). The gap (neigh_ref − ist_vj) is moved into eff_feiertag /
-        # eff_ferien so the additive identity is preserved exactly.
-        neigh_ref = m.get("neigh_ref")
-        shift_bucket = m.get("shift_bucket")
-        if neigh_ref is not None:
-            ref_for_verteilung = neigh_ref
-            adj = round(neigh_ref - ist_vj, 2)
-            eff_feiertag_adj = adj if shift_bucket == "ft" else 0.0
-            eff_ferien_adj = adj if shift_bucket == "fer" else 0.0
-        else:
-            ref_for_verteilung = ist_vj
-            eff_feiertag_adj = 0.0
-            eff_ferien_adj = 0.0
-        eff_verteilung = round(w * _m0 - ref_for_verteilung, 2)
-        eff_wochentag = round(w * (_m1 - _m0), 2)
-        eff_feiertag = round(w * sft + eff_feiertag_adj, 2)
-        eff_ferien = round(w * sfer + eff_ferien_adj, 2)
+        eff_feiertag = round(w * sft, 2)
+        eff_ferien = round(w * sfer, 2)
         eff_preis = round(w * (_m3 - _m2), 2)
-        eff_norm = round(
-            budget - (ist_vj + eff_verteilung + eff_wochentag
-                      + eff_feiertag + eff_ferien + eff_preis), 2)
+        # eff_wochentag absorbs the old distribution term (w*_m0 - ist_vj) and the
+        # weekday-constellation effect (w*(_m1-_m0)) as a single residual so that
+        # the visible columns sum exactly to budget with no hidden correction terms.
+        eff_wochentag = round(budget - ist_vj - eff_preis - eff_ferien - eff_feiertag, 2)
+        eff_verteilung = 0.0
+        eff_norm = 0.0
 
         norm = round(budget / m["base_ist"], 4) if m["base_ist"] else 0.0
         return DayPlan(
             fil_nr=fil_nr, datum=d, wochentag=m["wt"], bundesland=bl,
             ist_vj=ist_vj, eff_oeffnung=0.0, eff_hochrechnung=0.0,
-            eff_verteilung=eff_verteilung,
+            eff_verteilung=0.0,
             eff_wochentag=eff_wochentag, eff_preis=eff_preis,
             eff_ferien=eff_ferien, eff_feiertag=eff_feiertag,
-            eff_norm=eff_norm, budget=budget,
+            eff_norm=0.0, budget=budget,
             monat_basis=round(_m0, 2), monat_hoch=round(_m1, 2),
             monat_plan=round(_m3, 2), tagestyp=m["tagestyp"],
             feiertag_name=m["feiertag_name"], ferien_art=m["ferien_art"],

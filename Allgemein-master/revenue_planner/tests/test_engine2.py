@@ -1,10 +1,9 @@
 """Regression tests for LOGIC 2 (planning/engine2.py).
 
-Logic 2 keeps the same additive identity as logic 1 so that the Herleitung
-and Planungsgenauigkeit pages work unchanged:
+Logic 2 additive identity (eff_verteilung and eff_norm are always 0):
 
-    budget = ist_vj + eff_oeffnung + eff_verteilung + eff_wochentag
-           + eff_preis + eff_ferien + eff_feiertag + eff_norm
+    budget = ist_vj + eff_oeffnung + eff_hochrechnung + eff_wochentag
+           + eff_preis + eff_ferien + eff_feiertag
 
 Golden values are computed from the deterministic fixture in conftest.py.
 Change them deliberately only when the logic-2 calculation intentionally
@@ -46,8 +45,8 @@ def test_additive_identity_per_day(engine2):
     plans = _all_plans(engine2)
     assert plans
     for p in plans:
-        total = (p.ist_vj + p.eff_oeffnung + p.eff_verteilung + p.eff_wochentag
-                 + p.eff_preis + p.eff_ferien + p.eff_feiertag + p.eff_norm)
+        total = (p.ist_vj + p.eff_oeffnung + p.eff_hochrechnung + p.eff_wochentag
+                 + p.eff_preis + p.eff_ferien + p.eff_feiertag)
         assert abs(p.budget - total) < 0.05, (
             f"Identity broken {p.fil_nr} {p.datum}: budget={p.budget} sum={total}")
 
