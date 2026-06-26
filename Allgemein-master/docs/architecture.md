@@ -172,48 +172,61 @@ class PlanParams:
 
 ---
 
-## Zweite Berechnungslogik (Logik 2) — engine2.py
+## Die Planung (engine2.py) — Monatsumsatz-basiert
 
-Parallel zu `engine.py` existiert eine **alternative Engine** `planning/engine2.py`
-(`PlanningEngine2`). Beide laufen bewusst nebeneinander, bis entschieden ist, welche
-Logik besser plant — dann wird die unterlegene entfernt (offener Punkt #17).
+`planning/engine2.py` (`PlanningEngine2`) ist die aktive Planungslogik.
+Ergebnis: `planung2`. UI: Seiten `13_Herleitung2`, `15_Planung2`, `16_Planungsgenauigkeit2`.
 
-- **Ergebnis-Tabelle:** `planung2` (strukturgleich zu `planung`, additive in
-  `schema.py` DDL + `_migrate()`).
-- **UI:** Seiten `15_Planung2`, `16_Herleitung2`, `17_Planungsgenauigkeit2`
-  (Navigationsgruppe „Logik 2 (alternativ)"). Identische Übersichten wie Logik 1,
-  lesen/schreiben aber `planung2`.
-- **Wiederverwendung:** `PlanningEngine2` komponiert intern eine `PlanningEngine`
-  (`self.e`) und nutzt deren geladene Referenzdaten (Basisfenster, IST, Öffnung,
-  Feiertage/Ferien, **dasselbe** `datumsmapping`).
+- **Ergebnis-Tabelle:** `planung2` — enthält zusätzliche Spalten `budget_i` (Budget I,
+  vor Validierung) und `gewuenschter_monatsumsatz` (nach Wochentag-/Ferien-/Feiertagsshift,
+  vor Preis). DDL und `_migrate()` in `schema.py`.
+- **Wiederverwendung:** `PlanningEngine2` komponiert intern `PlanningEngine`
+  (`self.e`) für Basisfenster, IST, Öffnung, Feiertage/Ferien, Datumsmapping.
 
-### Vorgehen Logik 2 (Monatsumsatz-basiert)
-1. **Ausgangspunkt:** IST-Monatsumsatz des Basiszeitraums je Monat (`M0`,
-   via `e._base_month_ist`).
-2. **Wochentagsanteile** global über das ganze Basisjahr (`_weekday_share`),
-   Sondertage/Feiertage/Feiertagstage/Ferien ausgeschlossen
-   (`_excluded_base_dates`). Anteil = Σ Wochentagsumsatz / Σ Normaltagsumsatz.
-3. **Wochentags-Konstellation:** Pro Monat `M1 = Σ_wt cnt_plan[wt] × (M0·share[wt]/cnt_base[wt])`.
-   Mehr/weniger Mo…So im Planjahr verschiebt den Monatsumsatz (→ `eff_wochentag`).
-4. **Sondertag-/Feiertag-/Ferien-Monatsverschiebung:** nur wenn ein Sondertag im
-   Budgetjahr in einen **anderen Monat** fällt als im Basisjahr. Aufschlag =
-   Basis-IST des Tages − Ø gleicher Wochentag der 3 Nachbarmonate
-   (`_neighbour_weekday_avg`). Budgetmonat `+=`, Ursprungsmonat `−=`
-   (→ `eff_feiertag` bzw. `eff_ferien`). **Jahresweise nullsummig** (Golden bleibt stabil).
-5. **Preis:** `M3 = M2 × e._growth(fil, month)` (→ `eff_preis`).
-6. **Tagesverteilung:** `budget(d) = M3 × base_ist(d) / Σ_offene base_ist`, wobei
-   `base_ist(d)` der IST des via Datumsmapping bestimmten Basistags ist.
+### Vorgehen (Dreisatz-Verteilung)
+1. **M0 = monat_basis:** IST-Kalendermonatsumsatz des Basiszeitraums (`e._base_month_ist`).
+2. **Wochentagsanteile** (`_weekday_share`): global über Basiszeitraum, Sondertage/
+   Feiertage/Feiertagstage/Ferien ausgeschlossen. Anteil = Σ WT-Umsatz / Σ Normaltagsumsatz.
+3. **M1 = monat_hoch:** Wochentags-Konstellation. Mehr/weniger Mo…So im Planjahr →
+   Monatsumsatz verschiebt sich anteilig (→ `eff_wochentag` je Tag).
+4. **Shift-Berechnung** (nur bei Monatswechsel Plan ≠ Basis):
+   - Echte Feiertage (art=feiertag): `markup = base_ist − Ø Sonntage desselben Basismonats`
+     (`_same_month_normal_avg(..., weekday=6)`)
+   - Feiertagstage/Sondertage: `markup = base_ist − Ø gleicher Wochentag desselben Basismonats`
+     (`_same_month_normal_avg(...)`)
+   - Ferien: `markup = base_ist − Ø gleicher Wochentag in 3 Nachbarmonaten`
+     (`_neighbour_weekday_avg(...)`)
+   - Budgetmonat `+=`, Ursprungsmonat `−=` → **jahresweise nullsummig**
+5. **M2 = gewuenschter_monatsumsatz:** M1 + shift_feiertag + shift_ferien
+6. **M3 = monat_plan:** `M2 × e._growth(fil, month)` (Preisfaktor)
+7. **Tagesanteil (Dreisatz):** `anteil = raw_basis_ist(d) / Σ(raw_basis_ist alle offenen Tage)`
+   - `ist_vj = anteil × M0`
+   - `eff_wochentag = anteil × (M1 − M0)`
+   - `eff_ferien = anteil × shift_ferien[month]`
+   - `eff_feiertag = anteil × shift_feiertag[month]`
+   - `gewuenschter_monatsumsatz = anteil × M2`
+   - `eff_preis = anteil × (M3 − M2)`
+   - `budget_i = anteil × M3`  ← Budget I (vor Validierung)
+8. **Validierung** (`validierung2.py`): liest `SUM(COALESCE(budget_i, 0))` als Baseline;
+   schreibt `eff_validierung = budget_i × (faktor−1)` und `budget = budget_i × faktor`.
+   → `budget` = Budget II (endgültiger Planwert).
 
-### Additive Identität (wie Logik 1, exakt)
+### Blackout / Neue Filialen
+- `_BLACKOUT_DAYS = 14`: Basistage in den ersten 14 Tagen nach Eröffnung → `base_ist = 0`
+  (Neueröffnungseffekt untypisch). Betroffene Plantage werden per Imputation hochgerechnet.
+- Imputation: `ref_day_budgets` (Summe Bestandsfilialen je Tag) × Wochentagsanteil der
+  neuen Filiale.
+
+### Additive Identität (exakt je Tag)
 ```
-budget = ist_vj + eff_oeffnung + eff_verteilung + eff_wochentag
-       + eff_preis + eff_ferien + eff_feiertag + eff_norm
+budget_i = ist_vj + eff_oeffnung + eff_hochrechnung + eff_wochentag
+         + eff_preis + eff_ferien + eff_feiertag
+budget    = budget_i + eff_validierung   (Budget II)
 ```
-- `ist_vj` = base_ist(d); geschlossene Tage: `budget=0`, `eff_oeffnung=−ist_vj`.
-- `eff_verteilung` (= `w·M0 − ist_vj`) und `eff_norm` (Rundungsrest) sind in der UI
-  ausgeblendet (wie Logik 1).
-- Test-Suite: `tests/test_engine2.py` (Identität, Monatsnormierung, 365 Tage,
-  geschlossene Tage, eigener Golden-Run, Save→`planung2`).
+- `eff_verteilung` und `eff_norm` immer 0.0 (Spalten bleiben für Schema-Kompatibilität).
+- Geschlossene Tage: alle Spalten = 0.0 (inkl. `ist_vj`).
+- Test-Suite: `tests/test_engine2.py` (Identität auf `budget_i`, Monatsnormierung,
+  365 Tage/Filiale, geschlossene Tage mit `ist_vj=0`, Golden-Run, Save→`planung2`).
 
 ---
 

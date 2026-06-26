@@ -6,19 +6,32 @@
 
 ## Behoben ✅
 
+- **Engine2 Redesign: Dreisatz-Verteilung, budget_i/Budget II, neue Feiertag-Shift-Logik** (06/2026):
+  Vollständiger Umbau von `planning/engine2.py`. IST-Basis = `anteil × monat_basis` (Dreisatz:
+  Raw-Basis-IST als Gewichte). Feiertag-Shift: `_same_month_normal_avg` (gleicher Monat,
+  Sonntagsschnitt für echte Feiertage, WT-Schnitt für Feiertagstage/Sondertage). Ferien-Shift:
+  `_neighbour_weekday_avg` (3 Nachbarmonate, unverändert). Neue Spalten `budget_i`
+  (Budget I = vor Validierung) und `gewuenschter_monatsumsatz` in `planung2` + `DayPlan`.
+  Validierung2 liest `SUM(COALESCE(budget_i, 0))` und schreibt `budget = budget_i × faktor`.
+  `eff_verteilung` und `eff_norm` immer 0. Geschlossene Tage: alle Spalten = 0 (inkl. `ist_vj`).
+  Additive Identität: `budget_i = ist_vj + eff_oeffnung + eff_hochrechnung + eff_wochentag
+  + eff_preis + eff_ferien + eff_feiertag`. UI 13_Herleitung2: neue Spaltenreihenfolge,
+  „= Budget I“ / „= Budget II“, „=gew. Monatsumsatz“, alle „Logik 2“-Labels entfernt.
+  Golden-Werte unverändert (mathematisch identisch). 6/6 Tests grün.
+
 - **Logik 2 Eröffnungs-Blackout für Basistage + Ladebalken-Overcounting** (06/2026):
   `plan_branch()`: Nach `_ist_on()` wird `base_ist` auf 0 gesetzt, wenn `base_d` innerhalb
   der ersten 4 Wochen nach `eroeffnung` der Filiale liegt (gleicher Cutoff wie `_weekday_share`).
-  Opening-Tage haben atypisch hohe/niedrige Umsätze (Neueröffnungseffekt) und dürfen nicht
+  Opening-Tage haben atypisch hohe/niedrige Umsätze (Neeröffnungseffekt) und dürfen nicht
   als Referenz dienen; betroffene Plantage werden stattdessen per Imputation hochgerechnet.
   Behoben: große negative `eff_verteilung` an 26.–28.02.2026 (Fil. 313, Mapping auf
   Eröffnungswoche), falsche Abzüge an Faschingstagen 2026. `run()`: `done += 1` in Pass 1
   für `new_fil_nrs` entfernt — sie wurden ohne Callback vorgezählt, sodass `done > n_total`
-  in Pass 2 entstand und der Ladebalken >100 % anzeigte.
+  in Pass 2 entstand und der Ladebalken >100 % anzeigte.
 
 - **Datumsmapping: Normaltage dürfen nicht auf VJ-Feiertagstage/Sondertage landen** (06/2026):
   `_vj_special_bl` (Feiertagstage + Sondertage im Basiszeitraum, per BL) in `datumsmapping.py`
-  aufgebaut und im `_avoid`-Prädikat (Schritt 6, ISO-KW-Fallback) ergänzt. Ohne Fix landete z. B.
+  aufgebaut und im `_avoid`-Prädikat (Schritt 6, ISO-KW-Fallback) ergänzt. Ohne Fix landete z. B.
   der normale Sonntag 1. März 2026 (ISO-KW 9) auf dem Fasching-Sonntag 2. März 2025, einem
   Feiertagstag. Regressionstest `test_normal_day_does_not_map_to_vj_feiertagstag` sichert das ab.
 - **Logik 2 eff_verteilung bei monatsübergreifenden Sondertagen/Feiertagstagen/Ferien** (06/2026):
@@ -29,11 +42,11 @@
   `eff_ferien` verschoben; die additive Identität gilt exakt.
 - **Logik 2 Neue-Filiale-Imputation: Schwellwert auf < 100 € gesenkt** (06/2026):
   Trigger von `base_ist == 0.0` auf `base_ist < _MIN_IST` (100 €) geändert, damit Tage mit
-  geringem Vergleichsumsatz (z. B. 50 €) ebenfalls über Wochentagsanteile hochgerechnet werden.
+  geringem Vergleichsumsatz (z. B. 50 €) ebenfalls über Wochentagsanteile hochgerechnet werden.
 
 - **Zweite Berechnungslogik (Logik 2)** parallel implementiert: `planning/engine2.py`
   (`PlanningEngine2`), Tabelle `planung2`, UI-Seiten 15/16/17 (Planung/Herleitung/
-  Planungsgenauigkeit, jeweils „L2"), Navigationsgruppe „Logik 2 (alternativ)".
+  Planungsgenauigkeit, jeweils „L2“), Navigationsgruppe „Logik 2 (alternativ)“.
   Vorgehen: Monatsumsatz-Vorjahr als Ausgangspunkt → Wochentags-Konstellation
   (globale Wochentagsanteile) → Preis → Sondertag-/Feiertag-/Ferien-Monatsverschiebung
   → Verteilung über Datumsmapping-Basistagsanteile. Gleiche additive Identität wie
@@ -109,7 +122,7 @@
 
 | # | Thema | Risiko/Nutzen |
 |---|-------|---------------|
-| 17 | **Logik-Entscheidung**: Logik 1 (`engine.py`/`planung`) vs. Logik 2 (`engine2.py`/`planung2`) anhand realer Planungsgenauigkeit vergleichen, dann die unterlegene Logik inkl. Tabelle/Seiten/Tests entfernen | Hoch |
+| 19 | **Fil 17: fehlende Vergleichsumsatze im Februar** — im Herleitung-View fehlt für Fil 17 eine ganze Woche Basis-IST im Februar, obwohl die Filiale laut Import offen war. Ursache unklar (möglicher Datumsmapping-Fehler oder Import-Lücke). Prüfung per DB-Strukturabfrage empfohlen. | Mittel |
 | 2 | **Sondertage-Legacy** abbauen: `sondertage`-Tabelle abschaffen, nur noch `feiertage` mit art='Sondertag' | Mittelfristig |
 | 4 | **Engine-Performance**: `_ist_on()` O(Tage×Zeilen). Lösung: Lookup-Dict `{(fil_nr, iso): umsatz}` einmalig bauen | Laufzeit |
 | 16 | **Herleitung: Neue Ferien ohne Vorjahreszeitraum**: Grundlogik implementiert via `_ferien_faktor_fallback` (letzten gleichen/beliebigen Ferientyp des BL verwenden). Noch zu prüfen: Qualität der Schätzung in der Praxis. | Niedrig |
@@ -134,6 +147,7 @@
 
 | Git-Hash | Beschreibung |
 |----------|-------------|
+| `57f4909` | Engine2 redesign: Dreisatz-Verteilung, budget_i/Budget II, neue Feiertag-Shift-Logik; schema.py budget_i+gewuenschter_monatsumsatz; validierung2 budget_i-Baseline; test_engine2 aktualisiert; 13_Herleitung2 neue Spaltenreihenfolge |
 | `98c4eaa` | Ferienabschlag-Logik (VORWÄRTS-Fallback, mapping_art='ferienabschlag', Engine-Branch); _ferien_faktor_fallback; Filialen Auto-Save |
 | `9544e68` | CLAUDE.md aufgeteilt in docs/architecture, ui-patterns, open-issues; Datenschutzregel |
 | `49000d9` | Feiertage/Ferien: BL-Filter, Schulferien auto alle 16 BL, Spaltenumbenennung; Datumsmapping: Feiertagstag in Basisbeschreibung; Validierung: 3 neue Vergleichs-Checks |
