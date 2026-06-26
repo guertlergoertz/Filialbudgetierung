@@ -99,6 +99,9 @@ class DayPlan:
     feiertag_name: str
     ferien_art: str
     normalisierung: float
+    # engine2-only fields (default 0 so engine.py / L1 is unaffected)
+    gewuenschter_monatsumsatz: float = 0.0
+    budget_i: float = 0.0
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

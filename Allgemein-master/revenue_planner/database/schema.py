@@ -249,6 +249,8 @@ CREATE TABLE IF NOT EXISTS planung2 (
     feiertag_name   TEXT,
     ferien_art      TEXT,
     normalisierung  REAL,
+    budget_i        REAL,
+    gewuenschter_monatsumsatz REAL,
     PRIMARY KEY (fil_nr, datum)
 );
 CREATE INDEX IF NOT EXISTS idx_planung2_datum ON planung2(datum);
@@ -414,6 +416,8 @@ def _migrate(conn: sqlite3.Connection):
             feiertag_name   TEXT,
             ferien_art      TEXT,
             normalisierung  REAL,
+            budget_i        REAL,
+            gewuenschter_monatsumsatz REAL,
             PRIMARY KEY (fil_nr, datum)
         )
     """)
@@ -425,6 +429,10 @@ def _migrate(conn: sqlite3.Connection):
         conn.execute("ALTER TABLE planung2 ADD COLUMN eff_validierung REAL")
     if plan2_cols and "eff_hochrechnung" not in plan2_cols:
         conn.execute("ALTER TABLE planung2 ADD COLUMN eff_hochrechnung REAL")
+    if plan2_cols and "budget_i" not in plan2_cols:
+        conn.execute("ALTER TABLE planung2 ADD COLUMN budget_i REAL")
+    if plan2_cols and "gewuenschter_monatsumsatz" not in plan2_cols:
+        conn.execute("ALTER TABLE planung2 ADD COLUMN gewuenschter_monatsumsatz REAL")
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS planwert_korrekturen2 (

@@ -1,40 +1,50 @@
-"""Alternative planning engine — LOGIC 2.
+"""Alternative planning engine — Die Planung (Monatsumsatz-basiert).
 
-Eine zweite, eigenständige Berechnungslogik, parallel zur `engine.PlanningEngine`.
-Beide Engines werden bewusst nebeneinander betrieben, damit verglichen werden
-kann, welche Ergebnisse besser passen, bevor eine der beiden entfernt wird.
+Vorgehen (im Gegensatz zur tagesbasierten Hochrechnung):
 
-Vorgehen (im Gegensatz zu Logik 1, die rein tagesbasiert hochrechnet):
+1.  **Ausgangspunkt** ist der Kalender-Monatsumsatz des Basiszeitraums (Vorjahr)
+    je Monat (= monat_basis). Daran werden die Parameter angerechnet.
+2.  **+ Wochentag:** Über das gesamte Basisjahr wird je Wochentag sein Anteil
+    am Normaltagsumsatz berechnet (Sondertage, Feiertage/Feiertagstage und Ferien
+    ausgeschlossen). Weicht die Wochentags-Konstellation des Planjahres vom
+    Basisjahr ab (z. B. ein Samstag mehr), verschiebt sich der Monatsumsatz
+    entsprechend der Wochentagsstärke.
+3.  **+ Feiertag / + Ferien:** Wirken als Auf-/Abschlag und verschieben den
+    Monatsumsatz nur dann zwischen Monaten, wenn der Tag im Planjahr in einen
+    anderen Monat fällt als im Basisjahr (z. B. Fasching von März nach Februar).
+    - Feiertagstage/Sondertage: Vergleich mit Ø-Normaltag gleichen Wochentags
+      desselben Basismonats.
+    - Echte Feiertage (art=feiertag): Vergleich mit Ø-Sonntag desselben
+      Basismonats.
+    - Ferien: Vergleich mit Ø-Normaltag gleichen Wochentags in den drei
+      angrenzenden Basismonaten (Vor-, Aktual-, Folgemonat).
+    Jahresweise nullsummig.
+4.  **=gewünschter Monatsumsatz:** monat_basis + shift_wochentag + shift_feiertag
+    + shift_ferien. Verteilung auf Tage erfolgt über IST-Basis-Anteile:
+    anteil(Tag) = raw_basis_IST(Tag) / Σ(raw_basis_IST aller offenen Tage im Monat).
+    IST Basis (Tagesebene) = anteil × monat_basis.
+5.  **+ Preis:** prozentualer Wachstumsfaktor je Monat.
+6.  **= Budget I:** =gewünschter Monatsumsatz + + Öffnung + + Hochrechnung + + Preis.
+    Für Tage mit vorhandenem Basis-IST: Budget I = anteil × monat_plan.
+7.  **+ Validierung:** Wochentagsvalidierung (±10 %-Prüfung gegen Budget I).
+8.  **= Budget II:** Budget I + + Validierung.
 
-1.  **Ausgangspunkt** ist der Monatsumsatz des Basiszeitraums (Vorjahr) je
-    Monat. Daran werden die Parameter angerechnet.
-2.  **Preisanpassung** wie in Logik 1 als prozentualer Aufschlag (je Monat).
-3.  **Wochentagsanteile** werden über das gesamte Basisjahr berechnet
-    (Sondertage, Feiertage/Feiertagstage und Ferien werden dabei ignoriert):
-    je Wochentag sein Anteil am Normaltagsumsatz. Mit der Wochentags-Konstellation
-    (Anzahl Mo…So im Plan- vs. Basismonat) wird der Monatsumsatz angepasst —
-    ein Samstag mehr / Montag weniger verschiebt den Monatsumsatz entsprechend
-    der Wochentagsstärke.
-4.  **Sondertage/Feiertage/Ferien** wirken als Auf-/Abschlag und verschieben den
-    Monatsumsatz NUR dann zwischen Monaten, wenn der Tag im Budgetjahr in einen
-    anderen Monat fällt als im Basisjahr (z. B. Muttertag von Mai nach April).
-5.  **Verteilung auf Tage:** der fertige Monatsumsatz wird über die Anteile der
-    via Datumsmapping bestimmten Basistage am Basismonatsumsatz auf die einzelnen
-    Budgettage verteilt (jeder Basistag → %-Anteil → Plantag × Monatsumsatz).
+IST Basis leer (= 0) wenn das gemappte Basisdatum in den ersten 14 Tagen nach
+Filialeröffnung liegt oder kein IST vorhanden ist. In diesem Fall feuert
++ Hochrechnung (wenn auch + Öffnung leer ist).
 
-Additive Effekt-Zerlegung je Tag (exakt, damit Herleitung &
-Planungsgenauigkeit identisch funktionieren):
+Additive Identität je Tag (exakt):
+    Budget II = IST Basis
+              + + Wochentag
+              + + Ferien
+              + + Feiertag
+              + + Öffnung
+              + + Hochrechnung
+              + + Preis
+              + + Validierung
 
-    budget = ist_vj
-           + eff_oeffnung       (geschlossene Tage: -ist_vj)
-           + eff_hochrechnung   (Imputation für Tage ohne Basis-IST via Wochentagsanteile)
-           + eff_wochentag      (Wochentags-Konstellationseffekt; absorbiert auch Verteilungsterm)
-           + eff_preis          (Preisanpassung / Wachstum)
-           + eff_ferien         (Ferien-Monatsverschiebung)
-           + eff_feiertag       (Feiertag-/Sondertag-Monatsverschiebung)
-
-    eff_verteilung und eff_norm werden immer als 0.0 geschrieben (Spalten bleiben
-    im Schema für Rückwärtskompatibilität, sind aber rechnerisch leer).
+eff_verteilung und eff_norm werden immer als 0.0 geschrieben (Spalten bleiben
+im Schema für Rückwärtskompatibilität, sind aber rechnerisch leer).
 """
 
 from __future__ import annotations
@@ -53,22 +63,23 @@ from planning.engine import (
     is_special_quasi_feiertag,
 )
 
-_MIN_IST = 100.0   # days with IST below this are treated as "no revenue"
+_MIN_IST = 100.0   # Tage mit IST unterhalb dieses Werts gelten als „kein Umsatz"
+_BLACKOUT_DAYS = 14  # Eröffnungs-Blackout: Basistage innerhalb dieser Frist werden geleert
 
 
 class PlanningEngine2:
-    """Logic-2 engine. Reuses :class:`PlanningEngine` for all reference data
-    (base window, IST, opening rules, holidays, ferien, datumsmapping)."""
+    """Monatsumsatz-basierte Planungs-Engine. Nutzt PlanningEngine für alle
+    Referenzdaten (Basisfenster, IST, Öffnungsregeln, Feiertage, Ferien,
+    Datumsmapping)."""
 
     def __init__(self, conn: sqlite3.Connection, params: PlanParams):
         self.conn = conn
         self.p = params
-        # Compose the standard engine to reuse its loaded reference data.
         self.e = PlanningEngine(conn, params)
         self.filialen = self.e.filialen
         self._excluded_cache: dict[str, set[str]] = {}
 
-    # ── Delegated helpers ─────────────────────────────────────────────────
+    # ── Delegierte Helfer ─────────────────────────────────────────────────
 
     def base_window_label(self) -> str:
         return self.e.base_window_label()
@@ -79,14 +90,13 @@ class PlanningEngine2:
     # ── Basis-Sondertage (Basisjahr) ──────────────────────────────────────
 
     def _excluded_base_dates(self, bl: str) -> set[str]:
-        """ISO dates in the base window that are special (holiday/feiertagstag/
-        sondertag/ferien/24./31.12.) for this bundesland — excluded from the
-        weekday-share and neighbour-average computations."""
+        """ISO-Daten im Basisfenster, die Sonder-/Feiertage oder Ferien sind
+        (für BL) — ausgeschlossen aus Wochentags-Anteil- und
+        Nachbar-Durchschnitts-Berechnungen."""
         if bl in self._excluded_cache:
             return self._excluded_cache[bl]
         e = self.e
         excl: set[str] = set()
-        # Feiertage + Feiertagstage (base year via datum_vj) + Sondertage
         for entries in e.feiertage.values():
             for ft in entries:
                 if ft["bundesland"] in ("alle", bl) and ft.get("datum_vj"):
@@ -94,9 +104,7 @@ class PlanningEngine2:
         for st in e.sondertage.values():
             if st["bundesland"] in ("alle", bl) and st.get("datum_referenz"):
                 excl.add(st["datum_referenz"])
-        # Ferientage des Basisjahrs
         excl |= e.ferien_vj_dates
-        # 24./31.12. im Basisfenster (Quasi-Feiertage)
         d = e.base_start
         while d < e.base_mask_end.date():
             if is_special_quasi_feiertag(d):
@@ -108,7 +116,7 @@ class PlanningEngine2:
     # ── Neue-Basis-Filiale: Erkennung und Hochrechnung ────────────────────
 
     def _branch_had_feiertag_ist(self, fil_nr: str) -> bool:
-        """True if the branch had any revenue on an actual Feiertag in the base period."""
+        """True wenn die Filiale im Basiszeitraum an einem echten Feiertag Umsatz hatte."""
         e = self.e
         df = e._branch_base_ist(fil_nr)
         if df.empty:
@@ -122,7 +130,7 @@ class PlanningEngine2:
         return bool(((df["umsatz"] > 0) & (iso_series.isin(feiertag_iso))).any())
 
     def _ref_wt_sums(self, ref_fil_nrs: set[str]) -> dict[int, float]:
-        """Weekday IST sums for all reference branches over the full base period (computed once)."""
+        """Wochentagsumsatz-Summen aller Referenzfilialen über den gesamten Basiszeitraum."""
         e = self.e
         base_end = e.base_mask_end
         base_start_ts = pd.Timestamp(e.base_start)
@@ -137,11 +145,11 @@ class PlanningEngine2:
         return result
 
     def _wt_shares_for_branch(self, fil_nr: str, ref_wt_sums: dict[int, float]) -> dict[int, float]:
-        """Weekday share of this branch relative to pre-computed ref weekday sums.
+        """Wochentagsanteil dieser Filiale relativ zu den Referenzfilialen.
 
-        For weekdays where this branch has no historical IST (e.g. started opening
-        on Sundays only recently), fall back to the branch's average share across
-        all other weekdays so those days are not budgeted as zero.
+        Für Wochentage ohne historischen IST (z. B. erst kürzlich sonntags geöffnet)
+        wird der Durchschnittsanteil über alle anderen Wochentage als Fallback verwendet,
+        damit diese Tage nicht mit Budget 0 geplant werden.
         """
         e = self.e
         df = e._branch_base_ist(fil_nr)
@@ -152,8 +160,6 @@ class PlanningEngine2:
                 new_by_wt[int(w)] = float(grp["umsatz"].sum())
         shares = {w: (new_by_wt[w] / ref_wt_sums[w] if ref_wt_sums.get(w, 0.0) > 0 else 0.0)
                   for w in range(7)}
-        # Fallback for weekdays with no historical IST: use branch's average share
-        # from weekdays that DO have IST.
         filled = [v for v in shares.values() if v > 0]
         if filled:
             fallback = sum(filled) / len(filled)
@@ -166,7 +172,7 @@ class PlanningEngine2:
         """Anteil je Wochentag am Normaltagsumsatz im gesamten Basiszeitraum.
 
         Sondertage, Feiertage/Feiertagstage und Ferien werden ausgeschlossen.
-        Rückgabe: {0..6 -> Anteil}, Summe über offene Wochentage = 1.0.
+        Rückgabe: {0..6 → Anteil}, Summe über offene Wochentage = 1.0.
         """
         e = self.e
         df = e._branch_base_ist(fil_nr)
@@ -174,7 +180,7 @@ class PlanningEngine2:
             return {i: 0.0 for i in range(7)}
         eroeffnung = fil.get("eroeffnung")
         if eroeffnung:
-            cutoff = date.fromisoformat(eroeffnung) + timedelta(weeks=4)
+            cutoff = date.fromisoformat(eroeffnung) + timedelta(days=_BLACKOUT_DAYS)
             df = df[df["datum"] >= pd.Timestamp(cutoff)]
         excl = self._excluded_base_dates(bl)
         iso = df["datum"].dt.strftime("%Y-%m-%d")
@@ -187,11 +193,37 @@ class PlanningEngine2:
         sums = df.groupby(df["datum"].dt.weekday)["umsatz"].sum()
         return {i: float(sums.get(i, 0.0)) / total for i in range(7)}
 
-    # ── Nachbar-Wochentagsdurchschnitt (für Auf-/Abschlag) ────────────────
+    # ── Durchschnitts-Helfer für Shift-Berechnung ─────────────────────────
+
+    def _same_month_normal_avg(self, fil_nr: str, base_d: date, bl: str,
+                                weekday: int | None = None) -> float:
+        """Ø Umsatz von Normaltagen im Monat von base_d mit dem angegebenen Wochentag.
+
+        Normaltage = keine Sonder-/Feiertage/Ferien. Wenn weekday=None wird
+        der Wochentag von base_d verwendet. Für echte Feiertage weekday=6 (Sonntag)
+        übergeben.
+        """
+        e = self.e
+        df = e._branch_base_ist(fil_nr)
+        if df.empty:
+            return 0.0
+        wt = base_d.weekday() if weekday is None else weekday
+        excl = self._excluded_base_dates(bl)
+        iso = df["datum"].dt.strftime("%Y-%m-%d")
+        sel = df[
+            (df["datum"].dt.weekday == wt)
+            & (df["datum"].dt.month == base_d.month)
+            & (df["umsatz"] > 0)
+            & (~iso.isin(excl))
+        ]
+        if sel.empty:
+            return 0.0
+        return float(sel["umsatz"].mean())
 
     def _neighbour_weekday_avg(self, fil_nr: str, base_d: date, bl: str) -> float:
-        """Ø Umsatz desselben Wochentags in den 3 Monaten um ``base_d``
-        (Vormonat, Monat, Folgemonat) im Basiszeitraum — nur Normaltage."""
+        """Ø Umsatz desselben Wochentags in den 3 Monaten um base_d
+        (Vormonat, Monat, Folgemonat) im Basiszeitraum — nur Normaltage.
+        Wird für Ferien-Shifts verwendet."""
         e = self.e
         df = e._branch_base_ist(fil_nr)
         if df.empty:
@@ -230,7 +262,7 @@ class PlanningEngine2:
                 or "iso_kw")
 
     def _closed_and_type(self, fil_nr: str, fil: dict, d: date, bl: str) -> tuple:
-        """Return (closed, tagestyp, feiertag_name, ferien_art)."""
+        """Gibt (closed, tagestyp, feiertag_name, ferien_art) zurück."""
         e = self.e
         iso = d.isoformat()
         wt = d.weekday()
@@ -272,11 +304,13 @@ class PlanningEngine2:
         py = self.p.planjahr
 
         share_wt = self._weekday_share(fil_nr, fil, bl)
-        # Phase 1: pro Monat Basis (M0), Wochentagskonstellation (M1), Tages-Meta
-        m0: dict[int, float] = {}
-        m1: dict[int, float] = {}
-        shift_ft: dict[int, float] = {m: 0.0 for m in range(1, 13)}
-        shift_fer: dict[int, float] = {m: 0.0 for m in range(1, 13)}
+
+        # Phase 1: pro Monat Basis (monat_basis), Wochentags-Konstellation (monat_hoch),
+        # Tages-Metadaten
+        monat_basis: dict[int, float] = {}
+        monat_hoch: dict[int, float] = {}
+        shift_feiertag: dict[int, float] = {m: 0.0 for m in range(1, 13)}
+        shift_ferien: dict[int, float] = {m: 0.0 for m in range(1, 13)}
         override_val: dict[int, float | None] = {}
         day_meta: dict[int, list[dict]] = {}
 
@@ -287,7 +321,7 @@ class PlanningEngine2:
             ov, is_special_month = self._month_override(fil_nr, fil, month)
             override_val[month] = ov
             base_m = e._base_month_ist(fil_nr, fil, month)
-            m0[month] = base_m
+            monat_basis[month] = base_m
             by = self.base_year_for_month(month)
             cnt_base_by_month[month] = e._count_weekdays(by, month)
             cnt_plan_by_month[month] = e._count_weekdays(py, month)
@@ -299,12 +333,12 @@ class PlanningEngine2:
                 closed, tagestyp, ft_name, fer_art = self._closed_and_type(fil_nr, fil, d, bl)
                 base_d = self._mapping_base_date(fil_nr, bl, month, d)
                 base_ist = e._ist_on(fil_nr, base_d) if base_d else 0.0
-                # Blackout: base dates within 4 weeks of opening are atypical
-                # (opening-day effect) and must not be used as reference.
+                # Blackout: Basistage in den ersten 14 Tagen nach Eröffnung
+                # spiegeln untypischen Eröffnungseffekt wider → auf 0 setzen.
                 eroeff_str = fil.get("eroeffnung")
                 if base_ist > 0 and eroeff_str and base_d:
-                    _eroeff_d = date.fromisoformat(eroeff_str)
-                    if base_d < _eroeff_d + timedelta(weeks=4):
+                    eroeff_d = date.fromisoformat(eroeff_str)
+                    if base_d < eroeff_d + timedelta(days=_BLACKOUT_DAYS):
                         base_ist = 0.0
                 art = self._mapping_art(bl, d)
                 metas.append({
@@ -316,18 +350,30 @@ class PlanningEngine2:
             day_meta[month] = metas
 
         # Jährlicher Durchschnitts-Tagesumsatz je Wochentag (nur Normaltage).
-        R_annual = sum(m0.values())
+        umsatz_gesamt = sum(monat_basis.values())
         cnt_year_base = {w: sum(cnt_base_by_month[mo].get(w, 0) for mo in range(1, 13))
                          for w in range(7)}
-        d_w = {w: (R_annual * share_wt.get(w, 0.0) / cnt_year_base[w])
-               if cnt_year_base[w] > 0 else 0.0 for w in range(7)}
+        durchschnitt_wochentag = {
+            w: (umsatz_gesamt * share_wt.get(w, 0.0) / cnt_year_base[w])
+            if cnt_year_base[w] > 0 else 0.0
+            for w in range(7)
+        }
         for month in range(1, 13):
             cb = cnt_base_by_month[month]
             cp = cnt_plan_by_month[month]
-            m1[month] = m0[month] + sum(
-                (cp.get(w, 0) - cb.get(w, 0)) * d_w[w] for w in range(7))
+            monat_hoch[month] = monat_basis[month] + sum(
+                (cp.get(w, 0) - cb.get(w, 0)) * durchschnitt_wochentag[w]
+                for w in range(7)
+            )
 
-        # Phase 2: Auf-/Abschlag-Verschiebung zwischen Monaten
+        # Phase 2: Auf-/Abschlag-Verschiebung zwischen Monaten.
+        #
+        # Feiertag-Logik (nur bei Monatswechsel):
+        #   - Echte Feiertage (art=feiertag): markup = base_ist − Ø Sonntage desselben Basismonats
+        #   - Feiertagstage/Sondertage: markup = base_ist − Ø gleicher Wochentag desselben Basismonats
+        #
+        # Ferien-Logik (nur bei Monatswechsel):
+        #   - markup = base_ist − Ø gleicher Wochentag in angrenzenden Basismonaten
         for month in range(1, 13):
             if override_val[month] is not None:
                 continue
@@ -335,28 +381,38 @@ class PlanningEngine2:
                 if m["closed"] or m["base_ist"] <= 0:
                     continue
                 art = m["mapping_art"]
-                is_ft = art in ("feiertag", "feiertagstag", "sondertag")
+                is_actual_feiertag = art == "feiertag"
+                is_feiertagstag_or_sondertag = art in ("feiertagstag", "sondertag")
+                is_ft = is_actual_feiertag or is_feiertagstag_or_sondertag
                 is_fer = art in ("ferien", "Ferienabschlag")
                 if not (is_ft or is_fer):
                     continue
                 base_d = m["base_d"]
                 if base_d is None or base_d.month == month:
                     continue  # gleicher Monat → keine Verschiebung
-                neigh = self._neighbour_weekday_avg(fil_nr, base_d, bl)
-                markup = m["base_ist"] - neigh
-                if abs(markup) < 0.005:
-                    continue
-                bucket = shift_ft if is_ft else shift_fer
-                bucket[month] += markup        # Budgetmonat erhält Auf-/Abschlag
-                if 1 <= base_d.month <= 12:
-                    bucket[base_d.month] -= markup  # Ursprungsmonat verliert ihn
-                # Store neigh_ref so _build_day can add an adj to eff_feiertag/eff_ferien
-                # that normalises the cross-month scale difference.  Without this,
-                # ist_vj for a Fasching day shows the March-scale IST (e.g. 15 000 €)
-                # while budget is a February-scale value (e.g. 7 000 €), making
-                # eff_wochentag hugely negative.
-                m["neigh_ref"] = neigh
-                m["shift_bucket"] = "ft" if is_ft else "fer"
+
+                if is_ft:
+                    if is_actual_feiertag:
+                        # Echte Feiertage: Vergleich mit Ø Sonntag desselben Basismonats
+                        neigh_avg = self._same_month_normal_avg(fil_nr, base_d, bl, weekday=6)
+                    else:
+                        # Feiertagstage/Sondertage: Vergleich mit Ø gleichem Wochentag desselben Basismonats
+                        neigh_avg = self._same_month_normal_avg(fil_nr, base_d, bl)
+                    markup = m["base_ist"] - neigh_avg
+                    if abs(markup) < 0.005:
+                        continue
+                    shift_feiertag[month] += markup
+                    if 1 <= base_d.month <= 12:
+                        shift_feiertag[base_d.month] -= markup
+                else:
+                    # Ferien: Vergleich mit Ø gleichem Wochentag in angrenzenden Basismonaten
+                    neigh_avg = self._neighbour_weekday_avg(fil_nr, base_d, bl)
+                    markup = m["base_ist"] - neigh_avg
+                    if abs(markup) < 0.005:
+                        continue
+                    shift_ferien[month] += markup
+                    if 1 <= base_d.month <= 12:
+                        shift_ferien[base_d.month] -= markup
 
         # Phase 3: Monatsumsatz finalisieren + auf Tage verteilen
         results: list[DayPlan] = []
@@ -364,20 +420,21 @@ class PlanningEngine2:
             ov = override_val[month]
             metas = day_meta[month]
             if ov is not None:
-                _m0 = _m1 = _m2 = _m3 = ov
+                m0 = m1 = m2 = m3 = ov
                 sft = sfer = 0.0
             else:
-                _m0 = m0[month]
-                _m1 = m1[month]
-                sft = shift_ft[month]
-                sfer = shift_fer[month]
-                _m2 = _m1 + sft + sfer
+                m0 = monat_basis[month]
+                m1 = monat_hoch[month]
+                sft = shift_feiertag[month]
+                sfer = shift_ferien[month]
+                m2 = m1 + sft + sfer
                 growth = e._growth(fil, month)
-                _m3 = round(_m2 * growth, 2)
+                m3 = round(m2 * growth, 2)
 
             open_metas = [m for m in metas if not m["closed"]]
-            s = sum(m["base_ist"] for m in open_metas)
-            n_open = len(open_metas)
+            # Summe der rohen Basis-IST-Werte aller offenen Tage (Verteilungsgewichte)
+            summe_raw_basis_ist = sum(m["base_ist"] for m in open_metas)
+            anzahl_offener_tage = len(open_metas)
 
             for m in metas:
                 imputed_budget: float | None = None
@@ -385,25 +442,24 @@ class PlanningEngine2:
                     if m["base_ist"] < _MIN_IST:
                         is_feiertag = m["tagestyp"] == "feiertag"
                         if is_feiertag:
-                            # Impute Feiertag only if branch had Feiertag revenue in base period.
                             if had_feiertag_ist:
                                 ref_total = ref_day_budgets.get(m["d"].isoformat(), 0.0)
                                 imputed_budget = round(ref_total * wt_shares.get(6, 0.0), 2)
                         else:
-                            # Normal day with missing base IST → impute via weekday share.
                             ref_total = ref_day_budgets.get(m["d"].isoformat(), 0.0)
-                            eff_wt = m["wt"]
-                            imputed_budget = round(ref_total * wt_shares.get(eff_wt, 0.0), 2)
+                            imputed_budget = round(ref_total * wt_shares.get(m["wt"], 0.0), 2)
                 results.append(self._build_day(
-                    fil_nr, bl, m, _m0, _m1, _m2, _m3, sft, sfer, s, n_open,
-                    imputed_budget=imputed_budget))
+                    fil_nr, bl, m, m0, m1, m2, m3, sft, sfer,
+                    summe_raw_basis_ist, anzahl_offener_tage,
+                    imputed_budget=imputed_budget,
+                ))
 
         return results
 
-    # ── Override / neue Filiale (wie Logik 1) ─────────────────────────────
+    # ── Override / neue Filiale ───────────────────────────────────────────
 
     def _month_override(self, fil_nr: str, fil: dict, month: int) -> tuple[float | None, bool]:
-        """Return (monatswert | None, is_special). None = regulär berechnen."""
+        """Gibt (monatswert | None, is_special) zurück. None = regulär berechnen."""
         e = self.e
         if (fil_nr, month) in e.overrides:
             return e.overrides[(fil_nr, month)], True
@@ -424,93 +480,89 @@ class PlanningEngine2:
     # ── Tagesaufbau inkl. additiver Zerlegung ─────────────────────────────
 
     def _build_day(self, fil_nr: str, bl: str, m: dict,
-                   _m0: float, _m1: float, _m2: float, _m3: float,
-                   sft: float, sfer: float, s: float, n_open: int,
+                   m0: float, m1: float, m2: float, m3: float,
+                   sft: float, sfer: float,
+                   summe_raw_basis_ist: float, anzahl_offener_tage: int,
                    imputed_budget: float | None = None) -> DayPlan:
-        d = m["d"]
-        ist_vj = round(m["base_ist"], 2)
+        """Baut einen DayPlan für einen Tag auf.
 
+        Neue additive Zerlegung (Budget II = Σ aller Effekte):
+            IST Basis              = anteil × monat_basis
+            + Wochentag            = anteil × shift_wochentag
+            + Ferien               = anteil × shift_ferien
+            + Feiertag             = anteil × shift_feiertag
+            =gewünschter Monat     = anteil × (m0 + shift_wt + shift_ft + shift_fer) = anteil × m2
+            + Preis                = anteil × (m3 − m2)
+            = Budget I             = anteil × m3
+            + Validierung          (wird separat von validierung2.py gesetzt)
+            = Budget II            = Budget I + Validierung
+        """
+        d = m["d"]
+        raw_basis_ist = m["base_ist"]
+
+        # Geschlossene Tage: alle Spalten leer, Budget = 0
         if m["closed"]:
             return DayPlan(
                 fil_nr=fil_nr, datum=d, wochentag=m["wt"], bundesland=bl,
-                ist_vj=ist_vj, eff_oeffnung=round(-ist_vj, 2),
-                eff_hochrechnung=0.0, eff_verteilung=0.0,
-                eff_wochentag=0.0, eff_preis=0.0, eff_ferien=0.0,
-                eff_feiertag=0.0, eff_norm=0.0, budget=0.0,
-                monat_basis=round(_m0, 2), monat_hoch=round(_m1, 2),
-                monat_plan=round(_m3, 2), tagestyp="geschlossen",
-                feiertag_name=m["feiertag_name"], ferien_art=m["ferien_art"],
-                normalisierung=0.0,
+                ist_vj=0.0, eff_oeffnung=0.0, eff_hochrechnung=0.0,
+                eff_verteilung=0.0, eff_wochentag=0.0, eff_preis=0.0,
+                eff_ferien=0.0, eff_feiertag=0.0, eff_norm=0.0,
+                budget=0.0, budget_i=0.0, gewuenschter_monatsumsatz=0.0,
+                monat_basis=round(m0, 2), monat_hoch=round(m1, 2), monat_plan=round(m3, 2),
+                tagestyp="geschlossen", feiertag_name=m["feiertag_name"],
+                ferien_art=m["ferien_art"], normalisierung=0.0,
             )
 
-        # Imputation for branches with missing base IST: budget goes into
-        # eff_hochrechnung (separate column), not eff_verteilung.
+        # Hochrechnung für Filialen ohne Basis-IST an diesem Tag
         if imputed_budget is not None:
             return DayPlan(
                 fil_nr=fil_nr, datum=d, wochentag=m["wt"], bundesland=bl,
-                ist_vj=0.0, eff_oeffnung=0.0,
-                eff_hochrechnung=imputed_budget,
-                eff_verteilung=0.0,
-                eff_wochentag=0.0, eff_preis=0.0, eff_ferien=0.0,
-                eff_feiertag=0.0, eff_norm=0.0, budget=imputed_budget,
-                monat_basis=round(_m0, 2), monat_hoch=round(_m1, 2),
-                monat_plan=round(_m3, 2), tagestyp=m["tagestyp"],
-                feiertag_name=m["feiertag_name"], ferien_art=m["ferien_art"],
-                normalisierung=0.0,
+                ist_vj=0.0, eff_oeffnung=0.0, eff_hochrechnung=imputed_budget,
+                eff_verteilung=0.0, eff_wochentag=0.0, eff_preis=0.0,
+                eff_ferien=0.0, eff_feiertag=0.0, eff_norm=0.0,
+                budget=imputed_budget, budget_i=imputed_budget,
+                gewuenschter_monatsumsatz=0.0,
+                monat_basis=round(m0, 2), monat_hoch=round(m1, 2), monat_plan=round(m3, 2),
+                tagestyp=m["tagestyp"], feiertag_name=m["feiertag_name"],
+                ferien_art=m["ferien_art"], normalisierung=0.0,
             )
 
-        # Tagesanteil am Monat (offene Tage). Kein direktes Basis-IST → gleichverteilt.
-        if s > 0:
-            w = m["base_ist"] / s
+        # Tagesanteil: raw_basis_ist als Gewicht für Dreisatz-Verteilung des Monatsumsatzes
+        if summe_raw_basis_ist > 0:
+            anteil = raw_basis_ist / summe_raw_basis_ist
         else:
-            w = (1.0 / n_open) if n_open else 0.0
+            anteil = (1.0 / anzahl_offener_tage) if anzahl_offener_tage else 0.0
 
-        budget = round(w * _m3, 2)
-        # For cross-month special days, Phase 2 stored neigh_ref = average IST of
-        # same weekday in surrounding months (= the "normal" reference within the
-        # plan month). Without this adj, ist_vj would be the actual Fasching/Sondertag
-        # IST from the base month (e.g. March), which can be far above or below a
-        # typical February day, leaving eff_wochentag with a huge spurious component.
-        neigh_ref = m.get("neigh_ref")
-        shift_bucket = m.get("shift_bucket")
-        if neigh_ref is not None:
-            adj = round(neigh_ref - ist_vj, 2)
-            eff_feiertag_adj = adj if shift_bucket == "ft" else 0.0
-            eff_ferien_adj   = adj if shift_bucket == "fer" else 0.0
-        else:
-            eff_feiertag_adj = 0.0
-            eff_ferien_adj   = 0.0
-        eff_feiertag = round(w * sft + eff_feiertag_adj, 2)
-        eff_ferien   = round(w * sfer + eff_ferien_adj, 2)
-        eff_preis    = round(w * (_m3 - _m2), 2)
-        # eff_wochentag is the exact residual; with the adj above it equals
-        # w*_m1 - neigh_ref (≈ small) instead of absorbing a cross-month scale gap.
-        eff_wochentag = round(budget - ist_vj - eff_preis - eff_ferien - eff_feiertag, 2)
-        eff_verteilung = 0.0
-        eff_norm = 0.0
+        ist_basis_skaliert = round(anteil * m0, 2)
+        eff_wochentag = round(anteil * (m1 - m0), 2)
+        eff_ferien = round(anteil * sfer, 2)
+        eff_feiertag = round(anteil * sft, 2)
+        gewuenschter_monatsumsatz = round(anteil * m2, 2)
+        eff_preis = round(anteil * (m3 - m2), 2)
+        budget_i = round(anteil * m3, 2)
 
-        norm = round(budget / m["base_ist"], 4) if m["base_ist"] else 0.0
+        norm = round(budget_i / raw_basis_ist, 4) if raw_basis_ist else 0.0
         return DayPlan(
             fil_nr=fil_nr, datum=d, wochentag=m["wt"], bundesland=bl,
-            ist_vj=ist_vj, eff_oeffnung=0.0, eff_hochrechnung=0.0,
+            ist_vj=ist_basis_skaliert, eff_oeffnung=0.0, eff_hochrechnung=0.0,
             eff_verteilung=0.0,
             eff_wochentag=eff_wochentag, eff_preis=eff_preis,
             eff_ferien=eff_ferien, eff_feiertag=eff_feiertag,
-            eff_norm=0.0, budget=budget,
-            monat_basis=round(_m0, 2), monat_hoch=round(_m1, 2),
-            monat_plan=round(_m3, 2), tagestyp=m["tagestyp"],
-            feiertag_name=m["feiertag_name"], ferien_art=m["ferien_art"],
-            normalisierung=norm,
+            eff_norm=0.0, budget=budget_i,
+            budget_i=budget_i, gewuenschter_monatsumsatz=gewuenschter_monatsumsatz,
+            monat_basis=round(m0, 2), monat_hoch=round(m1, 2), monat_plan=round(m3, 2),
+            tagestyp=m["tagestyp"], feiertag_name=m["feiertag_name"],
+            ferien_art=m["ferien_art"], normalisierung=norm,
         )
 
     # ── Full run / persist ────────────────────────────────────────────────
 
     def run(self, fil_nrs: list[str] | None = None,
             progress_callback=None) -> list[DayPlan]:
-        """Run planning for all (or selected) branches.
+        """Berechnet für alle (oder ausgewählte) Filialen die Planung.
 
-        progress_callback(done: int, total: int, fil_nr: str) is called after
-        each branch is processed — use it to update a UI progress indicator.
+        progress_callback(done: int, total: int, fil_nr: str) wird nach jeder
+        Filiale aufgerufen — zum Aktualisieren eines UI-Fortschrittsbalkens.
         """
         targets = fil_nrs if fil_nrs else list(self.filialen.keys())
         active = [f for f in targets
@@ -521,7 +573,7 @@ class PlanningEngine2:
         by, bm = e.base_end_year, e.base_end_month
         plan_year = self.p.planjahr
 
-        # Precompute monthly IST sums for all active branches in one vectorized pass.
+        # Monatliche IST-Summen für alle aktiven Filialen in einem vektorisierten Pass.
         active_set = set(active)
         base_df = e.ist_df[
             (e.ist_df["fil_nr"].isin(active_set))
@@ -535,7 +587,7 @@ class PlanningEngine2:
             mo_sums = grp_df.groupby("ym")["umsatz"].sum()
             all_monthly_ist[str(fil_nr)] = {(p.year, p.month): float(v) for p, v in mo_sums.items()}
 
-        # All calendar months in the base period.
+        # Alle Kalendermonate im Basiszeitraum.
         all_base_months: list[tuple[int, int]] = []
         cur = e.base_start.replace(day=1)
         base_end_d = e.base_mask_end.date()
@@ -544,47 +596,46 @@ class PlanningEngine2:
             nxt = cur.month + 1
             cur = cur.replace(year=cur.year + (nxt - 1) // 12, month=(nxt - 1) % 12 + 1)
 
-        # Detect branches with IST gaps (at least one month 0, at least one month > 0).
-        new_fil_nrs: set[str] = set()
+        # Filialen mit IST-Lücken (mindestens ein Monat 0, mindestens ein Monat > 0).
+        neue_filialen: set[str] = set()
         for fil_nr in active:
             mo = all_monthly_ist.get(fil_nr, {})
             month_sums = [mo.get(ym, 0.0) for ym in all_base_months]
             if any(s > 0 for s in month_sums) and any(s == 0.0 for s in month_sums):
-                new_fil_nrs.add(fil_nr)
+                neue_filialen.add(fil_nr)
 
-        # Bestandsfilialen = active branches without IST gaps, used as reference.
-        ref_fil_nrs: set[str] = set()
+        # Bestandsfilialen = aktive Filialen ohne IST-Lücken, dienen als Referenz.
+        referenz_filialen: set[str] = set()
         for fil_nr in active:
-            if fil_nr in new_fil_nrs:
+            if fil_nr in neue_filialen:
                 continue
             mo = all_monthly_ist.get(fil_nr, {})
             month_sums = [mo.get(ym, 0.0) for ym in all_base_months]
             if all(s > 0 for s in month_sums):
-                ref_fil_nrs.add(fil_nr)
+                referenz_filialen.add(fil_nr)
 
-        # Precompute ref weekday sums ONCE for all new branches (key performance fix).
-        ref_wt_sums = self._ref_wt_sums(ref_fil_nrs)
+        # Wochentags-Summen der Referenzfilialen einmalig vorberechnen.
+        ref_wt_sums = self._ref_wt_sums(referenz_filialen)
 
-        # Per new branch: precompute weekday shares and Feiertag flag.
+        # Je neue Filiale: Wochentagsanteile und Feiertag-Flag vorberechnen.
         wt_shares_cache: dict[str, dict[int, float]] = {}
         feiertag_cache: dict[str, bool] = {}
-        for fil_nr in new_fil_nrs:
+        for fil_nr in neue_filialen:
             wt_shares_cache[fil_nr] = self._wt_shares_for_branch(fil_nr, ref_wt_sums)
             feiertag_cache[fil_nr] = self._branch_had_feiertag_ist(fil_nr)
 
-        # Pass 1: plan all Bestandsfilialen and plan-year-new branches (no imputation).
+        # Pass 1: Bestandsfilialen und Planjahr-Neueröffnungen (ohne Imputation).
         out: list[DayPlan] = []
         ref_day_budgets: dict[str, float] = {}
         n_total = len(active)
         done = 0
         for fil_nr in active:
-            if fil_nr in new_fil_nrs:
-                continue  # counted and callback-called in Pass 2
+            if fil_nr in neue_filialen:
+                continue
             fil = self.filialen.get(fil_nr, {})
             eroeff_str = fil.get("eroeffnung")
             is_plan_year_new = bool(eroeff_str and date.fromisoformat(eroeff_str).year == plan_year)
             if not is_plan_year_new:
-                # Skip branches with no IST in the last base month.
                 last_ist = all_monthly_ist.get(fil_nr, {}).get((by, bm), 0.0)
                 if last_ist <= 0:
                     done += 1
@@ -593,8 +644,7 @@ class PlanningEngine2:
                     continue
             branch_results = self.plan_branch(fil_nr)
             out.extend(branch_results)
-            # Accumulate ref day budgets for Pass 2.
-            if fil_nr in ref_fil_nrs:
+            if fil_nr in referenz_filialen:
                 for dp in branch_results:
                     iso = dp.datum.isoformat()
                     ref_day_budgets[iso] = ref_day_budgets.get(iso, 0.0) + dp.budget
@@ -602,8 +652,8 @@ class PlanningEngine2:
             if progress_callback:
                 progress_callback(done, n_total, fil_nr)
 
-        # Pass 2: branches with IST gaps — days with base_ist == 0 get imputed.
-        for fil_nr in new_fil_nrs:
+        # Pass 2: Filialen mit IST-Lücken — Tage ohne Basis-IST werden imputiert.
+        for fil_nr in neue_filialen:
             branch_results = self.plan_branch(
                 fil_nr,
                 ref_day_budgets=ref_day_budgets,
@@ -635,6 +685,7 @@ class PlanningEngine2:
             "eff_wochentag": r.eff_wochentag, "eff_preis": r.eff_preis,
             "eff_ferien": r.eff_ferien, "eff_feiertag": r.eff_feiertag,
             "eff_norm": r.eff_norm, "budget": r.budget,
+            "budget_i": r.budget_i, "gewuenschter_monatsumsatz": r.gewuenschter_monatsumsatz,
             "monat_basis": r.monat_basis, "monat_hoch": r.monat_hoch, "monat_plan": r.monat_plan,
             "monatsumsatz_ist_hoch": r.monat_hoch, "monatsumsatz_plan": r.monat_plan,
             "tagesumsatz_plan": r.budget, "liefer_plan": 0.0, "gesamt_plan": r.budget,
@@ -646,6 +697,7 @@ class PlanningEngine2:
                (fil_nr, datum, wochentag, bundesland, ist_vj,
                 eff_oeffnung, eff_hochrechnung, eff_verteilung, eff_wochentag, eff_preis,
                 eff_ferien, eff_feiertag, eff_norm, budget,
+                budget_i, gewuenschter_monatsumsatz,
                 monat_basis, monat_hoch, monat_plan,
                 monatsumsatz_ist_hoch, monatsumsatz_plan, tagesumsatz_plan,
                 liefer_plan, gesamt_plan, tagestyp, feiertag_name, ferien_art, normalisierung)
@@ -653,9 +705,11 @@ class PlanningEngine2:
                (:fil_nr, :datum, :wochentag, :bundesland, :ist_vj,
                 :eff_oeffnung, :eff_hochrechnung, :eff_verteilung, :eff_wochentag, :eff_preis,
                 :eff_ferien, :eff_feiertag, :eff_norm, :budget,
+                :budget_i, :gewuenschter_monatsumsatz,
                 :monat_basis, :monat_hoch, :monat_plan,
                 :monatsumsatz_ist_hoch, :monatsumsatz_plan, :tagesumsatz_plan,
-                :liefer_plan, :gesamt_plan, :tagestyp, :feiertag_name, :ferien_art, :normalisierung)""",
+                :liefer_plan, :gesamt_plan, :tagestyp, :feiertag_name, :ferien_art,
+                :normalisierung)""",
             rows,
         )
         self.conn.commit()

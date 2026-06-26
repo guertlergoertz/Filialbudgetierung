@@ -1,4 +1,4 @@
-"""Herleitung der Budgetberechnung — LOGIK 2 (additive Effektzerlegung, planung2)."""
+"""Herleitung der Budgetberechnung — Die Planung (additive Effektzerlegung, planung2)."""
 import streamlit as st
 from pathlib import Path
 import sys
@@ -13,58 +13,48 @@ conn = get_conn()
 gmbh = get_gmbh()
 planjahr = get_budgetjahr()
 
-st.title("Herleitung der Budgetberechnung — Logik 2")
+st.title("Herleitung der Budgetberechnung")
 st.caption(
-    "Effektzerlegung der zweiten Berechnungslogik (Monatsumsatz-basiert). "
-    "IST Basis = Tagesumsatz des via Datumsmapping bestimmten Basistags; die "
+    "Effektzerlegung der Planungslogik (Monatsumsatz-basiert). "
+    "IST Basis = skalierter Tagesanteil am Kalender-Monatsumsatz des Vorjahres; die "
     "`+`-Spalten zeigen die additiven Effekte bis zum Tagesbudget."
 )
 
 def _render_legende():
-    with st.expander("📖 Legende — Berechnungslogik 2", expanded=False):
+    with st.expander("📖 Legende — Berechnungslogik", expanded=False):
         st.markdown("""
-### Vorgehen Logik 2 (Monatsumsatz-basiert)
+### Vorgehen (Monatsumsatz-basiert, Dreisatz-Verteilung)
 
-1. **Ausgangspunkt:** Monatsumsatz des Basiszeitraums (Vorjahr) je Monat.
-2. **Wochentags-Konstellation:** Über das ganze Basisjahr wird je Wochentag
-   sein Anteil am Normaltagsumsatz berechnet (ohne Sondertage/Feiertage/Ferien).
-   Hat das Planjahr eine andere Mo…So-Konstellation, verschiebt sich der
-   Monatsumsatz entsprechend der Wochentagsstärke (**+ Wochentag**).
-3. **Preisanpassung:** prozentualer Aufschlag je Monat (**+ Preis**).
-4. **Sondertage/Feiertage/Ferien:** wirken als Auf-/Abschlag und verschieben den
-   Monatsumsatz nur dann zwischen Monaten, wenn der Tag im Budgetjahr in einen
-   anderen Monat fällt als im Basisjahr (**+ Feiertag** / **+ Ferien**).
-5. **Hochrechnung (+ Hochrechnung):** Filialen mit Umsatzlücken im Basiszeitraum
-   (z. B. Neueröffnungen, vorübergehend geschlossene Filialen) werden für fehlende Tage
-   über Bestandsfilialen hochgerechnet.
-   Voraussetzung: mindestens 21 Tage mit Umsatz ≥ 100 € im Basiszeitraum.
-
-   1. **Auswertungszeitraum:** Ab dem ersten Tag mit Umsatz ≥ 100 € bis zum Ende des
-      Basiszeitraums. Filialen mit weniger als 21 solcher Tage werden nicht hochgerechnet.
-   2. **Bestandsfilialen:** Filialen, die in **jedem Monat** des Auswertungszeitraums
-      einen Gesamtumsatz ≥ 100 € hatten (keine Lücken). Diese dienen als Referenz.
-   3. **Wochentagsanteil:** Je Wochentag wird der Anteil der Filiale an der Gesamtsumme
-      der Bestandsfilialen berechnet — nur über die Tage mit Umsatz ≥ 100 €.
-      Beispiel: alle Montage der Filiale ÷ alle Montage der Bestandsfilialen = 0,8 %.
-   4. **Fehlende Budgettage:** Für jeden Budgettag, dessen Basis-IST < 100 € ist, ergibt
-      sich das Budget aus:
-      *Wochentagsanteil × Summe der Budgets aller Bestandsfilialen an diesem Budgettag.*
-      Beispiel: 0,8 % × 500.000 € = 4.000 €.
-   5. **Feiertage:** Echte Feiertage (nicht Feiertagstage) werden mit dem
-      **Sonntagsanteil** der Filiale bewertet.
-6. **Wochentagsvalidierung:** Nach der Berechnung wird geprüft, ob einzelne Tage
-   (Summe **Budget** über alle Filialen) um mehr als ±10 % vom Wochentagsschnitt
-   der umliegenden Monate abweichen. Ausgeschlossen werden dabei Feiertage,
-   Feiertagstage, Sondertage und Ferien — sowohl im Planjahr als auch Tage, deren
-   Vorjahres-Referenzdatum im Datumsmapping ein Sonder-/Feiertagstag war (z. B.
-   ein Dienstag, dessen IST-Basis aus dem Dienstag nach Ostermontag stammt).
-   Ausreißer werden auf den Wochentagsschnitt korrigiert, die Korrektur per
-   Dreisatz proportional auf alle Filialen verteilt (**+ Validierung**).
+1. **IST Basis:** Anteil des Tages × Kalender-Monatsumsatz Vorjahr.
+   Der Anteil ergibt sich aus dem Rohwert des Basistags geteilt durch die Summe aller
+   Rohwerte offener Tage im Budgetmonat (Dreisatz-Gewichtung).
+   Beispiel: Monatsumsatz VJ = 200.000 €, Tagesanteil = 0,5 % → IST Basis = 1.000 €.
+2. **+ Wochentag:** Verschiebt den Monatsumsatz entsprechend der Wochentags-Konstellation.
+   Hat das Planjahr eine andere Mo…So-Verteilung als das Basisjahr, ändert sich der
+   erreichbare Monatsumsatz anteilig.
+3. **+ Ferien:** Ferientage liefern einen Auf-/Abschlag gegenüber dem Normaltagsschnitt
+   (gleicher Wochentag, umliegende Monate). Die Verschiebung wirkt nur, wenn der Tag im
+   Budgetjahr in einen anderen Monat fällt als im Basisjahr.
+4. **+ Feiertag:** Feiertagstage/Sondertage: Aufschlag vs. Normaltagsschnitt gleicher
+   Wochentag im selben Basismonat. Echte Feiertage: Aufschlag vs. Sonntagsschnitt
+   desselben Basismonats. Verschiebung nur bei Monatswechsel.
+5. **=gew. Monatsumsatz:** Anteil × (M₀ + Δ Wochentag + Δ Ferien + Δ Feiertag).
+   Dies ist der gewünschte Tagesumsatz vor Preis und Sondereffekten.
+6. **+ Öffnung:** Tage, die im Planjahr neu geöffnet oder geschlossen sind, erhalten
+   den Auf-/Abschlag zum gewünschten Monatsumsatz.
+7. **+ Hochrechnung:** Filialen mit Umsatzlücken im Basiszeitraum (z. B. Neueröffnungen)
+   werden über Bestandsfilialen hochgerechnet. Voraussetzung: ≥ 21 Tage mit Umsatz ≥ 100 €.
+8. **+ Preis:** prozentualer Wachstumsaufschlag je Monat.
+9. **= Budget I:** =gew. Monatsumsatz + Öffnung + Hochrechnung + Preis.
+10. **+ Validierung:** Korrektur durch die Wochentagsvalidierung (±10 %-Schwelle über alle
+    Filialen). Ausreißer werden auf den Wochentagsschnitt korrigiert, proportional verteilt.
+11. **= Budget II:** Budget I + Validierung → endgültiges Tagesbudget.
 
 ```
-Budget = IST Basis + Öffnung + Hochrechnung + Wochentag + Preis + Ferien + Feiertag + Validierung
+= Budget I  = IST Basis + Wochentag + Ferien + Feiertag + Öffnung + Hochrechnung + Preis
+= Budget II = Budget I + Validierung
 ```
-*(+ Verteilung und + Norm sind in der DB vorhanden, werden aber immer als 0 geschrieben und hier nicht angezeigt)*
+*(eff_norm ist in der DB vorhanden, wird aber immer als 0 geschrieben und hier nicht angezeigt)*
 
 Diese Zerlegung addiert sich durch einfache Summation auf jede Zeit- und
 Aggregationsebene (Woche / Monat / Jahr, Filiale / Bundesland / Gesamt).
@@ -84,8 +74,8 @@ if _cache_key not in st.session_state:
     ).fetchone()[0]
     if _n_check == 0:
         st.info(
-            f"Noch keine Planungsdaten (Logik 2) für {planjahr} vorhanden. "
-            "Bitte zuerst unter **Planung ausführen — Logik 2** eine Berechnung starten."
+            f"Noch keine Planungsdaten für {planjahr} vorhanden. "
+            "Bitte zuerst unter **Planung ausführen** eine Berechnung starten."
         )
         _render_legende()
         st.stop()
@@ -94,24 +84,19 @@ if _cache_key not in st.session_state:
         _df_raw = pd.read_sql(
             "SELECT fil_nr, datum, bundesland, wochentag, ist_vj, "
             "eff_oeffnung, eff_hochrechnung, eff_wochentag, eff_preis, eff_ferien, eff_feiertag, "
-            "eff_validierung, budget, "
+            "eff_validierung, budget_i, gewuenschter_monatsumsatz, budget, "
             "tagestyp, feiertag_name, ferien_art "
             "FROM planung2 WHERE CAST(strftime('%Y', datum) AS INTEGER)=?",
             conn, params=(planjahr,),
         )
 
-        eff_cols = ["ist_vj", "eff_oeffnung", "eff_hochrechnung", "eff_wochentag",
-                    "eff_preis", "eff_ferien", "eff_feiertag", "eff_validierung", "budget"]
+        eff_cols = ["ist_vj", "eff_wochentag", "eff_ferien", "eff_feiertag",
+                    "gewuenschter_monatsumsatz", "eff_oeffnung", "eff_hochrechnung",
+                    "eff_preis", "budget_i", "eff_validierung", "budget"]
         for col in eff_cols:
             if col not in _df_raw.columns:
                 _df_raw[col] = 0.0
             _df_raw[col] = pd.to_numeric(_df_raw[col], errors="coerce").fillna(0.0)
-
-        if "budget" not in _df_raw.columns or _df_raw["budget"].sum() == 0:
-            for alt in ["gesamt_plan", "tagesumsatz_plan"]:
-                if alt in _df_raw.columns:
-                    _df_raw["budget"] = pd.to_numeric(_df_raw[alt], errors="coerce").fillna(0.0)
-                    break
 
         _df_raw["fil_nr"] = _df_raw["fil_nr"].astype(str).str.strip()
 
@@ -166,7 +151,7 @@ if _cache_key not in st.session_state:
         if _gesperrte:
             _df_raw = _df_raw[~_df_raw["fil_nr"].isin(_gesperrte)]
 
-        _has_data = _df_raw.groupby("fil_nr")[["budget", "ist_vj"]].sum().abs().sum(axis=1) > 0
+        _has_data = _df_raw.groupby("fil_nr")[["budget_i", "ist_vj"]].sum().abs().sum(axis=1) > 0
         _df_raw = _df_raw[_df_raw["fil_nr"].isin(_has_data[_has_data].index)]
 
         _fil_eroeff = {
@@ -202,8 +187,9 @@ if df_all.empty:
     _render_legende()
     st.stop()
 
-eff_cols = ["ist_vj", "eff_oeffnung", "eff_hochrechnung",
-            "eff_wochentag", "eff_preis", "eff_ferien", "eff_feiertag", "eff_validierung", "budget"]
+eff_cols = ["ist_vj", "eff_wochentag", "eff_ferien", "eff_feiertag",
+            "gewuenschter_monatsumsatz", "eff_oeffnung", "eff_hochrechnung",
+            "eff_preis", "budget_i", "eff_validierung", "budget"]
 
 # ── Filter ─────────────────────────────────────────────────────────────────────────────────
 from datetime import date as _date
@@ -483,11 +469,16 @@ agg["Abw. %"] = agg.apply(
 # ── Spalten umbenennen & anordnen ───────────────────────────────────────────────────────────────────
 rename = {
     "fil_nr": "Filiale", "bundesland": "Bundesland",
-    "ist_vj": "IST Basis", "eff_oeffnung": "+ Öffnung",
+    "ist_vj": "IST Basis",
+    "eff_wochentag": "+ Wochentag", "eff_ferien": "+ Ferien",
+    "eff_feiertag": "+ Feiertag",
+    "gewuenschter_monatsumsatz": "=gew. Monatsumsatz",
+    "eff_oeffnung": "+ Öffnung",
     "eff_hochrechnung": "+ Hochrechnung",
-    "eff_wochentag": "+ Wochentag", "eff_preis": "+ Preis", "eff_ferien": "+ Ferien",
-    "eff_feiertag": "+ Feiertag", "eff_validierung": "+ Validierung",
-    "budget": "= Budget",
+    "eff_preis": "+ Preis",
+    "budget_i": "= Budget I",
+    "eff_validierung": "+ Validierung",
+    "budget": "= Budget II",
     "ist_aktuell": "= IST",
 }
 if zeit_ebene == "Tag":
@@ -510,9 +501,9 @@ if zeit_ebene == "Tag":
 else:
     lead = [c for c in ["Filiale", "Bundesland", "Zeit"] if c in disp.columns]
 
-ordered = lead + ["IST Basis", "+ Öffnung", "+ Hochrechnung",
-                  "+ Wochentag", "+ Preis", "+ Ferien", "+ Feiertag",
-                  "+ Validierung", "= Budget", "= IST", "Abw. €", "Abw. %"]
+ordered = lead + ["IST Basis", "+ Wochentag", "+ Ferien", "+ Feiertag",
+                  "=gew. Monatsumsatz", "+ Öffnung", "+ Hochrechnung", "+ Preis",
+                  "= Budget I", "+ Validierung", "= Budget II", "= IST", "Abw. €", "Abw. %"]
 disp = disp[[c for c in ordered if c in disp.columns]]
 
 # ── Kennzahlen ──────────────────────────────────────────────────────────────────────────────
@@ -532,23 +523,24 @@ def _de(val) -> str:
         return "–"
 
 m1.metric("IST Basis", f"{_de(tot_vj)} €")
-m2.metric("Budget", f"{_de(tot_bud)} €")
+m2.metric("= Budget II", f"{_de(tot_bud)} €")
 m3.metric("Δ €", f"{'+'  if tot_bud >= tot_vj else ''}{_de(tot_bud - tot_vj)} €")
 m4.metric("Δ %", f"{(tot_bud - tot_vj) / tot_vj * 100:+.1f} %" if tot_vj else "–")
 
 st.caption(
-    "Lesart: **IST Basis** = tatsächlicher IST-Umsatz des Referenztags aus dem Basiszeitraum. "
-    "Jede `+`-Spalte zeigt den additiven Effekt in €. Summe ergibt **= Budget**. "
-    "**+ Hochrechnung** = imputiertes Budget für Tage ohne Basis-IST (Neueröffnungen). "
-    "**+ Validierung** = Korrektur durch die Wochentagsvalidierung (0 = kein Ausreißer). "
-    "Interne Normierungsspalten (Verteilung, Norm) sind ausgeblendet."
+    "Lesart: **IST Basis** = Tagesanteil × Kalender-Monatsumsatz Vorjahr. "
+    "Jede `+`-Spalte zeigt den additiven Effekt in €. "
+    "**=gew. Monatsumsatz** = Anteil × (M₀ + Δ WT + Δ Ferien + Δ Feiertag). "
+    "**= Budget I** = gewünschter Monatsumsatz + Öffnung + Hochrechnung + Preis. "
+    "**= Budget II** = Budget I + Validierung (endgültiges Tagesbudget). "
+    "**Abw.** = IST − Budget II. Interne Normierungsspalten (Norm) sind ausgeblendet."
 )
 st.divider()
 
 # ── Tabelle ───────────────────────────────────────────────────────────────────────────────────
-num_cols = ["IST Basis", "+ Öffnung", "+ Hochrechnung",
-            "+ Wochentag", "+ Preis", "+ Ferien", "+ Feiertag",
-            "+ Validierung", "= Budget", "= IST", "Abw. €"]
+num_cols = ["IST Basis", "+ Wochentag", "+ Ferien", "+ Feiertag",
+            "=gew. Monatsumsatz", "+ Öffnung", "+ Hochrechnung", "+ Preis",
+            "= Budget I", "+ Validierung", "= Budget II", "= IST", "Abw. €"]
 
 def _fmt_de(val):
     try:
@@ -583,38 +575,40 @@ if "Abw. %" in disp_fmt.columns:
     disp_fmt["Abw. %"] = disp_fmt["Abw. %"].apply(_fmt_pct)
 
 col_cfg = {
-    "Tagesinfo":      st.column_config.TextColumn("Tagesinfo",
+    "Tagesinfo":          st.column_config.TextColumn("Tagesinfo",
         help="Feiertag, Sondertag oder Schließtag", width="medium"),
-    "Ferien":         st.column_config.TextColumn("Ferien",
+    "Ferien":              st.column_config.TextColumn("Ferien",
         help="Ferienname wenn der Tag in einer Ferienperiode liegt", width="medium"),
-    "Basisdatum":     st.column_config.TextColumn("Basisdatum",
-        help="Referenztag aus dem Basiszeitraum, dessen IST-Umsatz als Grundlage dient"),
-    "IST Basis":      st.column_config.TextColumn("IST Basis",
-        help="Tagesumsatz des Basiszeitraum-Referenztags (via Datumsmapping)"),
-    "+ Öffnung":      st.column_config.TextColumn("+ Öffnung",
-        help="Effekt geschlossener Tage (geschlossen → −IST Basis)"),
-    "+ Hochrechnung": st.column_config.TextColumn("+ Hochrechnung",
-        help="Imputation für Tage ohne Basis-IST (Neueröffnungen): Budget aus Wochentagsanteil × Bestandsfilialen-Summe"),
-    "+ Verteilung":   st.column_config.TextColumn("+ Verteilung",
-        help="Tagesverteilung: Normierung des Basis-IST-Anteils zum Monatsumsatz (nur Tage mit vorhandenem Basis-IST)"),
-    "+ Wochentag":    st.column_config.TextColumn("+ Wochentag",
+    "Basisdatum":          st.column_config.TextColumn("Basisdatum",
+        help="Referenztag aus dem Basiszeitraum (via Datumsmapping)"),
+    "IST Basis":           st.column_config.TextColumn("IST Basis",
+        help="Anteil des Tages × Kalender-Monatsumsatz Vorjahr (skalierter IST-Basiswert)"),
+    "+ Wochentag":         st.column_config.TextColumn("+ Wochentag",
         help="Wochentags-Konstellationseffekt: andere Mo…So-Verteilung im Planjahr"),
-    "+ Preis":        st.column_config.TextColumn("+ Preis",
+    "+ Ferien":            st.column_config.TextColumn("+ Ferien",
+        help="Ferien-Monatsverschiebung (Auf-/Abschlag vs. Normaltag wandert ggf. in anderen Monat)"),
+    "+ Feiertag":          st.column_config.TextColumn("+ Feiertag",
+        help="Feiertag-/Sondertag-Monatsverschiebung (Vergleich: selber Monat, gleicher WT bzw. Sonntag)"),
+    "=gew. Monatsumsatz":  st.column_config.TextColumn("=gew. Monatsumsatz",
+        help="Anteil × (M₀ + Δ Wochentag + Δ Ferien + Δ Feiertag) — gewünschter Tagesumsatz vor Preis"),
+    "+ Öffnung":           st.column_config.TextColumn("+ Öffnung",
+        help="Effekt von Tagen, die im Planjahr (neu) geöffnet oder geschlossen sind"),
+    "+ Hochrechnung":      st.column_config.TextColumn("+ Hochrechnung",
+        help="Imputation für Tage ohne Basis-IST (Neueröffnungen): Wochentagsanteil × Bestandsfilialen-Summe"),
+    "+ Preis":             st.column_config.TextColumn("+ Preis",
         help="Preis-/Wachstumseffekt aus den Preisanpassungsparametern (% je Monat)"),
-    "+ Ferien":       st.column_config.TextColumn("+ Ferien",
-        help="Ferien-Monatsverschiebung (Auf-/Abschlag wandert in einen anderen Monat)"),
-    "+ Feiertag":     st.column_config.TextColumn("+ Feiertag",
-        help="Feiertag-/Sondertag-Monatsverschiebung (z. B. Muttertag Mai → April)"),
-    "+ Validierung":  st.column_config.TextColumn("+ Validierung",
-        help="Wochentagsvalidierung: Korrektur auf IST-Basis-Wochentagsschnitt (0 = kein Ausreißer)"),
-    "= Budget":       st.column_config.TextColumn("= Budget",
-        help="Tagesbudget = IST Basis + alle Effekte inkl. Validierung"),
-    "= IST":          st.column_config.TextColumn("= IST",
+    "= Budget I":          st.column_config.TextColumn("= Budget I",
+        help="Budget I = =gew. Monatsumsatz + Öffnung + Hochrechnung + Preis (vor Validierung)"),
+    "+ Validierung":       st.column_config.TextColumn("+ Validierung",
+        help="Wochentagsvalidierung: Korrektur auf Wochentagsschnitt (±10 %-Schwelle, 0 = kein Ausreißer)"),
+    "= Budget II":         st.column_config.TextColumn("= Budget II",
+        help="Tagesbudget = Budget I + Validierung (endgültiger Planwert)"),
+    "= IST":               st.column_config.TextColumn("= IST",
         help="Tatsächlich erreichter IST-Umsatz im Budgetjahr (soweit importiert)"),
     "Abw. €":        st.column_config.TextColumn("Abw. €",
-        help="IST − Budget (positiv = über Budget, negativ = unter Budget)"),
-    "Abw. %":         st.column_config.TextColumn("Abw. %",
-        help="Abweichung IST vs. Budget in Prozent"),
+        help="IST − Budget II (positiv = über Budget, negativ = unter Budget)"),
+    "Abw. %":              st.column_config.TextColumn("Abw. %",
+        help="Abweichung IST vs. Budget II in Prozent"),
 }
 
 st.dataframe(
@@ -628,15 +622,15 @@ st.dataframe(
 # ── Excel-Export — Button unterhalb der Tabelle ──────────────────────────────────────────────────
 buf = io.BytesIO()
 with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-    disp.to_excel(writer, index=False, sheet_name="Herleitung_Logik2")
+    disp.to_excel(writer, index=False, sheet_name="Herleitung")
     from openpyxl.styles import Font
-    ws = writer.sheets["Herleitung_Logik2"]
+    ws = writer.sheets["Herleitung"]
     for cell in ws[1]:
         cell.font = Font(bold=True)
 st.download_button(
     "📥 Excel herunterladen",
     data=buf.getvalue(),
-    file_name=f"Herleitung_Logik2_{planjahr}_{zeit_ebene}_{entity_ebene}_{gmbh.replace(' ', '_')}.xlsx",
+    file_name=f"Herleitung_{planjahr}_{zeit_ebene}_{entity_ebene}_{gmbh.replace(' ', '_')}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     type="primary",
     key="herleitung2_dl_active",

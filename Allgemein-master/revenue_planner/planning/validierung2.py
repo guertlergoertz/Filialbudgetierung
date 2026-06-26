@@ -1,4 +1,4 @@
-"""Wochentagsvalidierung für Planwerte (Logik 2) — arbeitet auf SQLite-Verbindung."""
+"""Wochentagsvalidierung für Planwerte (die Planung) — arbeitet auf SQLite-Verbindung."""
 from __future__ import annotations
 
 import sqlite3
@@ -32,7 +32,7 @@ def validiere_und_korrigiere_planwerte2(
     # Tages-Budget-Gesamtumsatz über alle Filialen (nur offene Tage)
     rows = conn.execute("""
         SELECT datum,
-               SUM(budget)                                     AS tages_ist,
+               SUM(COALESCE(budget_i, 0))                     AS tages_ist,
                MAX(wochentag)                                  AS wochentag,
                CAST(strftime('%m', datum) AS INTEGER)          AS monat
         FROM planung2
@@ -139,8 +139,8 @@ def validiere_und_korrigiere_planwerte2(
 
         conn.execute("""
             UPDATE planung2
-            SET eff_validierung = COALESCE(eff_validierung, 0) + budget * (? - 1.0),
-                budget           = budget * ?
+            SET eff_validierung = COALESCE(eff_validierung, 0) + budget_i * (? - 1.0),
+                budget           = budget_i * ?
             WHERE datum = ? AND tagestyp != 'geschlossen'
         """, (faktor, faktor, d))
 

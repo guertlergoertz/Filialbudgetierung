@@ -6,6 +6,19 @@
 
 ## Behoben ✅
 
+- **Engine2 Redesign: Dreisatz-Verteilung, budget_i/Budget II, neue Feiertag-Shift-Logik** (06/2026):
+  Vollständiger Umbau von `planning/engine2.py`. IST-Basis = `anteil × monat_basis` (Dreisatz:
+  Raw-Basis-IST als Gewichte). Feiertag-Shift: `_same_month_normal_avg` (gleicher Monat,
+  Sonntagsschnitt für echte Feiertage, WT-Schnitt für Feiertagstage/Sondertage). Ferien-Shift:
+  `_neighbour_weekday_avg` (3 Nachbarmonate, unverändert). Neue Spalten `budget_i`
+  (Budget I = vor Validierung) und `gewuenschter_monatsumsatz` in `planung2` + `DayPlan`.
+  Validierung2 liest `SUM(COALESCE(budget_i, 0))` und schreibt `budget = budget_i × faktor`.
+  `eff_verteilung` und `eff_norm` immer 0. Geschlossene Tage: alle Spalten = 0 (inkl. `ist_vj`).
+  Additive Identität: `budget_i = ist_vj + eff_oeffnung + eff_hochrechnung + eff_wochentag
+  + eff_preis + eff_ferien + eff_feiertag`. UI 13_Herleitung2: neue Spaltenreihenfolge,
+  „= Budget I" / „= Budget II", „=gew. Monatsumsatz", alle „Logik 2"-Labels entfernt.
+  Golden-Werte unverändert (mathematisch identisch). 6/6 Tests grün.
+
 - **Logik 2 Eröffnungs-Blackout für Basistage + Ladebalken-Overcounting** (06/2026):
   `plan_branch()`: Nach `_ist_on()` wird `base_ist` auf 0 gesetzt, wenn `base_d` innerhalb
   der ersten 4 Wochen nach `eroeffnung` der Filiale liegt (gleicher Cutoff wie `_weekday_share`).
