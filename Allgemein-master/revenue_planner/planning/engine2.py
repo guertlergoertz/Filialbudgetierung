@@ -137,7 +137,12 @@ class PlanningEngine2:
         return result
 
     def _wt_shares_for_branch(self, fil_nr: str, ref_wt_sums: dict[int, float]) -> dict[int, float]:
-        """Weekday share of this branch relative to pre-computed ref weekday sums."""
+        """Weekday share of this branch relative to pre-computed ref weekday sums.
+
+        For weekdays where this branch has no historical IST (e.g. started opening
+        on Sundays only recently), fall back to the branch's average share across
+        all other weekdays so those days are not budgeted as zero.
+        """
         e = self.e
         df = e._branch_base_ist(fil_nr)
         df = df[df["umsatz"] >= _MIN_IST]
@@ -145,8 +150,15 @@ class PlanningEngine2:
         if not df.empty:
             for w, grp in df.groupby(df["datum"].dt.weekday):
                 new_by_wt[int(w)] = float(grp["umsatz"].sum())
-        return {w: (new_by_wt[w] / ref_wt_sums[w] if ref_wt_sums.get(w, 0.0) > 0 else 0.0)
-                for w in range(7)}
+        shares = {w: (new_by_wt[w] / ref_wt_sums[w] if ref_wt_sums.get(w, 0.0) > 0 else 0.0)
+                  for w in range(7)}
+        # Fallback for weekdays with no historical IST: use branch's average share
+        # from weekdays that DO have IST.
+        filled = [v for v in shares.values() if v > 0]
+        if filled:
+            fallback = sum(filled) / len(filled)
+            shares = {w: (v if v > 0 else fallback) for w, v in shares.items()}
+        return shares
 
     # ── Wochentagsanteile (über das ganze Basisjahr) ──────────────────────
 
@@ -338,7 +350,13 @@ class PlanningEngine2:
                 bucket[month] += markup        # Budgetmonat erhält Auf-/Abschlag
                 if 1 <= base_d.month <= 12:
                     bucket[base_d.month] -= markup  # Ursprungsmonat verliert ihn
-                # (neigh computed but only used for shift magnitude; no day-level storage needed)
+                # Store neigh_ref so _build_day can add an adj to eff_feiertag/eff_ferien
+                # that normalises the cross-month scale difference.  Without this,
+                # ist_vj for a Fasching day shows the March-scale IST (e.g. 15 000 €)
+                # while budget is a February-scale value (e.g. 7 000 €), making
+                # eff_wochentag hugely negative.
+                m["neigh_ref"] = neigh
+                m["shift_bucket"] = "ft" if is_ft else "fer"
 
         # Phase 3: Monatsumsatz finalisieren + auf Tage verteilen
         results: list[DayPlan] = []
@@ -448,12 +466,25 @@ class PlanningEngine2:
             w = (1.0 / n_open) if n_open else 0.0
 
         budget = round(w * _m3, 2)
-        eff_feiertag = round(w * sft, 2)
-        eff_ferien = round(w * sfer, 2)
-        eff_preis = round(w * (_m3 - _m2), 2)
-        # eff_wochentag absorbs the old distribution term (w*_m0 - ist_vj) and the
-        # weekday-constellation effect (w*(_m1-_m0)) as a single residual so that
-        # the visible columns sum exactly to budget with no hidden correction terms.
+        # For cross-month special days, Phase 2 stored neigh_ref = average IST of
+        # same weekday in surrounding months (= the "normal" reference within the
+        # plan month). Without this adj, ist_vj would be the actual Fasching/Sondertag
+        # IST from the base month (e.g. March), which can be far above or below a
+        # typical February day, leaving eff_wochentag with a huge spurious component.
+        neigh_ref = m.get("neigh_ref")
+        shift_bucket = m.get("shift_bucket")
+        if neigh_ref is not None:
+            adj = round(neigh_ref - ist_vj, 2)
+            eff_feiertag_adj = adj if shift_bucket == "ft" else 0.0
+            eff_ferien_adj   = adj if shift_bucket == "fer" else 0.0
+        else:
+            eff_feiertag_adj = 0.0
+            eff_ferien_adj   = 0.0
+        eff_feiertag = round(w * sft + eff_feiertag_adj, 2)
+        eff_ferien   = round(w * sfer + eff_ferien_adj, 2)
+        eff_preis    = round(w * (_m3 - _m2), 2)
+        # eff_wochentag is the exact residual; with the adj above it equals
+        # w*_m1 - neigh_ref (≈ small) instead of absorbing a cross-month scale gap.
         eff_wochentag = round(budget - ist_vj - eff_preis - eff_ferien - eff_feiertag, 2)
         eff_verteilung = 0.0
         eff_norm = 0.0

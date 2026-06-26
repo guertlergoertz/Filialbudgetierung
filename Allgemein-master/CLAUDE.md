@@ -37,7 +37,7 @@ revenue_planner/
 └── ui/
     ├── session.py            # get_conn(), get_gmbh(), require_db(), get_budgetjahr()
     ├── assets/               # Logos
-    └── pages/                # 1_Startseite … 17_Planungsgenauigkeit2 (Logik 2 = 15/16/17)
+    └── pages/                # 1_Startseite … 14_Planungsgenauigkeit2 (Logik 2 = 12/13/14; L1 entfernt)
 docs/
 ├── architecture.md           # Schema, Datenfluss, Engine-Logik, Stolperfallen
 ├── ui-patterns.md            # UI-Seiten, Patterns, Formatierung

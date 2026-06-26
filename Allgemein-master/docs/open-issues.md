@@ -109,7 +109,7 @@
 
 | # | Thema | Risiko/Nutzen |
 |---|-------|---------------|
-| 17 | **Logik-Entscheidung**: Logik 1 (`engine.py`/`planung`) vs. Logik 2 (`engine2.py`/`planung2`) anhand realer Planungsgenauigkeit vergleichen, dann die unterlegene Logik inkl. Tabelle/Seiten/Tests entfernen | Hoch |
+| 19 | **Fil 17: fehlende Vergleichsumsätze im Februar** — im Herleitung-View fehlt für Fil 17 eine ganze Woche Basis-IST im Februar, obwohl die Filiale laut Import offen war. Ursache unklar (möglicher Datumsmapping-Fehler oder Import-Lücke). Prüfung per DB-Strukturabfrage empfohlen. | Mittel |
 | 2 | **Sondertage-Legacy** abbauen: `sondertage`-Tabelle abschaffen, nur noch `feiertage` mit art='Sondertag' | Mittelfristig |
 | 4 | **Engine-Performance**: `_ist_on()` O(Tage×Zeilen). Lösung: Lookup-Dict `{(fil_nr, iso): umsatz}` einmalig bauen | Laufzeit |
 | 16 | **Herleitung: Neue Ferien ohne Vorjahreszeitraum**: Grundlogik implementiert via `_ferien_faktor_fallback` (letzten gleichen/beliebigen Ferientyp des BL verwenden). Noch zu prüfen: Qualität der Schätzung in der Praxis. | Niedrig |

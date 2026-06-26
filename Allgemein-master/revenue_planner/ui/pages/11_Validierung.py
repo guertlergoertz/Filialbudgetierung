@@ -18,7 +18,7 @@ st.caption(f"Firma: **{get_gmbh()}** — Budgetjahr: **{planjahr}**")
 
 VALID_BL = set(_BL_NAME_TO_ABBR.values())
 
-# Gleiche Stichtagslogik wie 6_Planung
+# Gleiche Stichtagslogik wie 12_Planung2
 today = date.today()
 stichtag = date(today.year, 1, 1) if planjahr <= today.year else today
 engine = PlanningEngine(conn, PlanParams(planjahr=planjahr, stichtag=stichtag))
