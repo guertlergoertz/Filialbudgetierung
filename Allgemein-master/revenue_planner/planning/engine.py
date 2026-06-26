@@ -1,5 +1,4 @@
-"""
-Core planning engine.
+"""Core planning engine.
 
 Basiszeitraum: rollierend die letzten 12 vollständig abgeschlossenen Monate ab
 einem Stichtag (Default: heute). Jeder Kalendermonat 1–12 kommt im 12-Monats-
@@ -83,6 +82,7 @@ class DayPlan:
     ist_vj: float
     # additive effects
     eff_oeffnung: float
+    eff_hochrechnung: float     # imputation for days without base IST (new branches)
     eff_verteilung: float
     eff_wochentag: float
     eff_preis: float
@@ -98,6 +98,9 @@ class DayPlan:
     feiertag_name: str
     ferien_art: str
     normalisierung: float
+    # engine2-only fields (default 0 so engine.py / L1 is unaffected)
+    gewuenschter_monatsumsatz: float = 0.0
+    budget_i: float = 0.0
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -591,14 +594,6 @@ class PlanningEngine:
 
     def _day_status(self, fil_nr: str, fil: dict, d: date, bl: str,
                     wt_pct: dict[int, float]) -> dict:
-        """Fachlich: Tagesstatus bestimmen (Schritt 1 je Tag).
-
-        Klassifiziert einen Plantag als geschlossen/normal/feiertag/sondertag/
-        ferien anhand Eröffnungs-/Schließdatum der Filiale, Wochentags-Öffnung,
-        Feiertags-Öffnung sowie Ferienfenster des Bundeslands. Liefert das
-        Meta-Dict für die nachfolgenden Rechenschritte; "zaehlt_offen" gibt an,
-        ob der Tag in den share-Nenner (offene Wochentags-Vorkommen) eingeht.
-        """
         iso = d.isoformat()
         wt = d.weekday()
         closed = False
@@ -647,18 +642,6 @@ class PlanningEngine:
     def _day_raw(self, fil_nr: str, bl: str, month: int, m: dict, growth: float,
                  monat_basis: float, monat_hoch: float, monat_plan: float,
                  share) -> dict:
-        """Fachlich: Roh-Tageswert + Ferien-/Feiertagseffekt (Schritt 2 je Tag).
-
-        Ermittelt ist_vj über das Datumsmapping (Fallback: gleicher Kalendertag
-        im Basisjahr) und berechnet je Tagestyp den unnormierten Tageswert:
-        - geschlossen: 0
-        - feiertag:    IST des Referenz-Feiertags × Wachstum (eff_feiertag)
-        - sondertag:   Samstags-Ø oder Referenztag × Wachstum (eff_feiertag)
-        - ferien:      Wochentags-Anteil × Ferienwochenfaktor (eff_ferien)
-        - normal:      Wochentags-Anteil des Monatsplans
-        tag_basis/tag_hoch/tag_plan tragen die additive Effektzerlegung
-        (Verteilung/Wochentagsmix/Preis) in den Build-Schritt.
-        """
         d, wt = m["d"], m["wt"]
         _day_iso = d.isoformat()
         _mapping_base = (
@@ -704,8 +687,6 @@ class PlanningEngine:
                 raw = round(self._saturday_avg(fil_nr) * growth, 2)
                 eff_feiertag = raw - tag_plan
             elif st.get("datum_referenz"):
-                # Direct VJ-reference: ist_vj (from datumsmapping = datum_referenz) × growth.
-                # No separate feiertag effect since the VJ sondertag day is already the reference.
                 raw = round(ist_vj * growth, 2)
                 eff_feiertag = 0.0
                 direct_ferien = True
@@ -715,14 +696,10 @@ class PlanningEngine:
         elif m["tagestyp"] == "ferien":
             base_iso = _base_d.isoformat() if _base_d else None
             if base_iso and base_iso in self.ferien_vj_dates:
-                # Direkter Ferien-zu-Ferien-Vergleich: ist_vj (VJ-Ferientag) × Wachstum.
-                # Kein Ferienfaktor nötig, da ferien-Effekt schon in ist_vj enthalten.
                 raw = round(ist_vj * growth, 2)
                 eff_ferien = 0.0
                 direct_ferien = True
             elif _mapping_art == "Ferienabschlag":
-                # Ferienabschlag: base_d is a normal day (no VJ ferien equivalent weekday).
-                # ist_vj = umsatz of that normal base day. Apply ferien factor on top.
                 period = self._ferien_period_for_day(d.isoformat(), bl)
                 if period:
                     ff = self._ferien_faktor_woche(fil_nr, period, m["ferien_woche"])
@@ -731,7 +708,6 @@ class PlanningEngine:
                 raw = round(ist_vj * growth * ff, 2)
                 eff_ferien = raw - round(ist_vj * growth, 2)
             else:
-                # Kein VJ-Ferien-Äquivalent für diesen Wochentag → Ferienfaktor anwenden
                 period = self._ferien_period_for_day(d.isoformat(), bl)
                 if period:
                     ff = self._ferien_faktor_woche(fil_nr, period, m["ferien_woche"])
@@ -747,34 +723,18 @@ class PlanningEngine:
 
     @staticmethod
     def _normalize_month(rows: list[dict], monat_plan: float) -> float:
-        """Fachlich: Monatsnormierung (Schritt 3 je Monat).
-
-        Liefert den Faktor, mit dem alle Roh-Tageswerte skaliert werden, damit
-        die Summe der Tagesbudgets exakt monat_plan ergibt. Die Differenz je
-        Tag landet additiv in eff_norm (Identität bleibt exakt).
-        """
         raw_sum = sum(r["raw"] for r in rows)
         return (monat_plan / raw_sum) if raw_sum > 0 else 1.0
 
     def _build_dayplan(self, fil_nr: str, bl: str, r: dict, norm: float,
                        monat_basis: float, monat_hoch: float,
                        monat_plan: float, wt_eff_per_day: float = 0.0) -> DayPlan:
-        """Fachlich: DayPlan-Konstruktion inkl. Effektzerlegung (Schritt 4).
-
-        Geschlossene Tage: budget=0, eff_oeffnung = -ist_vj (Identität).
-        Offene Tage:  budget = raw × norm und additive Zerlegung
-            eff_verteilung = tag_basis - ist_vj   (Einzeltag → Wochentags-Ø)
-            eff_wochentag  = tag_hoch  - tag_basis (Wochentagsmix-Hochrechnung)
-            eff_preis      = tag_plan  - tag_hoch  (Wachstum/Preis)
-            eff_norm       = budget    - raw       (Normierungsrest)
-        eff_ferien/eff_feiertag kommen aus _day_raw.
-        """
         if r["tagestyp"] == "geschlossen":
             eff_oeffnung = -r["ist_vj"]
             return DayPlan(
                 fil_nr=fil_nr, datum=r["d"], wochentag=r["wt"], bundesland=bl,
                 ist_vj=round(r["ist_vj"], 2),
-                eff_oeffnung=round(eff_oeffnung, 2), eff_verteilung=0.0,
+                eff_oeffnung=round(eff_oeffnung, 2), eff_hochrechnung=0.0, eff_verteilung=0.0,
                 eff_wochentag=0.0, eff_preis=0.0, eff_ferien=0.0,
                 eff_feiertag=0.0, eff_norm=0.0, budget=0.0,
                 monat_basis=round(monat_basis, 2), monat_hoch=round(monat_hoch, 2),
@@ -787,9 +747,6 @@ class PlanningEngine:
         eff_norm = budget - r["raw"]
 
         if r.get("_direct_ferien"):
-            # Direkter Vergleich (Ferien/Sondertag/Feiertag mit VJ-Referenz): raw = ist_vj × growth.
-            # eff_wochentag wird als Monatsdurchschnitt (flat) verteilt.
-            # Identität: ist_vj + eff_wochentag + eff_preis + eff_norm = budget.
             g = r.get("_growth", 1.0)
             eff_verteilung = 0.0
             eff_wochentag = round(wt_eff_per_day, 2)
@@ -807,6 +764,7 @@ class PlanningEngine:
             fil_nr=fil_nr, datum=r["d"], wochentag=r["wt"], bundesland=bl,
             ist_vj=round(r["ist_vj"], 2),
             eff_oeffnung=0.0,
+            eff_hochrechnung=0.0,
             eff_verteilung=round(eff_verteilung, 2),
             eff_wochentag=round(eff_wochentag, 2),
             eff_preis=round(eff_preis, 2),
@@ -821,14 +779,6 @@ class PlanningEngine:
         )
 
     def plan_branch(self, fil_nr: str) -> list[DayPlan]:
-        """Orchestrator: Monate → Tage, ruft die modularen Rechenschritte.
-
-        Pipeline je Monat: _monat_werte → _day_status (alle Tage)
-        → share-Nenner → _day_raw (alle Tage) → _normalize_month
-        → _build_dayplan (alle Tage). Reines Verschieben von Code —
-        Berechnungen sind identisch zur monolithischen Vorversion
-        (abgesichert durch den Golden-Test).
-        """
         self._ferien_cache: dict[tuple, float] = {}
         fil = self.filialen.get(fil_nr, {"bundesland": "RP"})
         bl = _normalize_bl(fil.get("bundesland", "RP") or "RP")
