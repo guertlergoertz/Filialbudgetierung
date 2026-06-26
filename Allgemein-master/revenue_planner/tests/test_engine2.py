@@ -1,13 +1,12 @@
-"""Regression tests for LOGIC 2 (planning/engine2.py).
+"""Regression tests for the planning engine (planning/engine2.py).
 
-Logic 2 keeps the same additive identity as logic 1 so that the Herleitung
-and Planungsgenauigkeit pages work unchanged:
+Additive identity (eff_verteilung and eff_norm are always 0):
 
-    budget = ist_vj + eff_oeffnung + eff_verteilung + eff_wochentag
-           + eff_preis + eff_ferien + eff_feiertag + eff_norm
+    budget_i = ist_vj + eff_oeffnung + eff_hochrechnung + eff_wochentag
+             + eff_preis + eff_ferien + eff_feiertag
 
 Golden values are computed from the deterministic fixture in conftest.py.
-Change them deliberately only when the logic-2 calculation intentionally
+Change them deliberately only when the calculation intentionally
 changes (drift > 0.5 EUR per branch-year = behaviour change).
 """
 from collections import defaultdict
@@ -46,10 +45,13 @@ def test_additive_identity_per_day(engine2):
     plans = _all_plans(engine2)
     assert plans
     for p in plans:
-        total = (p.ist_vj + p.eff_oeffnung + p.eff_verteilung + p.eff_wochentag
-                 + p.eff_preis + p.eff_ferien + p.eff_feiertag + p.eff_norm)
-        assert abs(p.budget - total) < 0.05, (
-            f"Identity broken {p.fil_nr} {p.datum}: budget={p.budget} sum={total}")
+        total = (p.ist_vj + p.eff_oeffnung + p.eff_hochrechnung + p.eff_wochentag
+                 + p.eff_preis + p.eff_ferien + p.eff_feiertag)
+        assert abs(p.budget_i - total) < 0.05, (
+            f"Identity broken {p.fil_nr} {p.datum}: budget_i={p.budget_i} sum={total}")
+        # Before validierung step, budget == budget_i
+        assert abs(p.budget - p.budget_i) < 0.01, (
+            f"budget != budget_i {p.fil_nr} {p.datum}: budget={p.budget} budget_i={p.budget_i}")
 
 
 def test_month_normalization(engine2):
@@ -72,6 +74,8 @@ def test_closed_days_zero_budget(engine2):
     assert sundays
     for p in sundays:
         assert p.budget == 0.0
+        assert p.budget_i == 0.0
+        assert p.ist_vj == 0.0
         assert p.tagestyp == "geschlossen"
 
 

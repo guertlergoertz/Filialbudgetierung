@@ -1,4 +1,4 @@
-"""Wochentagsvalidierung für Planwerte (Logik 2) — arbeitet auf SQLite-Verbindung."""
+"""Wochentagsvalidierung für Planwerte (die Planung) — arbeitet auf SQLite-Verbindung."""
 from __future__ import annotations
 
 import sqlite3
@@ -14,25 +14,25 @@ def validiere_und_korrigiere_planwerte2(
     plan_jahr: int,
 ) -> pd.DataFrame:
     """
-    Vergleicht den Tages-Budget-Gesamtumsatz (Summe budget aller Filialen)
+    Vergleicht den Tages-Budget-Gesamtumsatz (Summe budget_i aller Filialen)
     je Wochentag mit den umliegenden Monaten (M-1, M, M+1).
 
     Ausgeschlossen werden:
     - Tage, deren tagestyp im Planjahr ein Sonder-/Feiertagstyp ist
       (feiertag, feiertagstag, sondertag, ferien)
     - Tage, deren Basis-Datum laut Datumsmapping ein Sonder-/Feiertagstag war
-      (mapping_art IN feiertag, feiertagstag, sondertag) — z. B. der Dienstag
+      (mapping_art IN feiertag, feiertagstag, sondertag) — z. B. der Dienstag
       nach Ostermontag, dessen IST-Basis aus dem entsprechenden Feiertagstag
       des Vorjahres stammt
 
-    Weicht ein Tag um mehr als ±10 % vom Budget-Wochentagsschnitt ab, wird
+    Weicht ein Tag um mehr als ±10 % vom Budget-Wochentagsschnitt ab, wird
     das Budget via eff_validierung auf den Schnittfaktor korrigiert und per
     Dreisatz proportional auf alle Filialen verteilt.
     """
     # Tages-Budget-Gesamtumsatz über alle Filialen (nur offene Tage)
     rows = conn.execute("""
         SELECT datum,
-               SUM(budget)                                     AS tages_ist,
+               SUM(COALESCE(budget_i, 0))                     AS tages_ist,
                MAX(wochentag)                                  AS wochentag,
                CAST(strftime('%m', datum) AS INTEGER)          AS monat
         FROM planung2
@@ -125,7 +125,7 @@ def validiere_und_korrigiere_planwerte2(
     korr_df = pd.DataFrame(korrekturen)
 
     # Korrekturen per Dreisatz auf Filialen herunterrechnen.
-    # Faktor aus Budget-Abweichung, angewendet auf budget via eff_validierung.
+    # Faktor aus Budget-Abweichung, angewendet auf budget_i via eff_validierung.
     # SQLite evaluiert alle SET-Ausdrücke mit den alten Spaltenwerten (atomic update).
     for _, korr in korr_df.iterrows():
         d = korr["datum"]
@@ -139,8 +139,8 @@ def validiere_und_korrigiere_planwerte2(
 
         conn.execute("""
             UPDATE planung2
-            SET eff_validierung = COALESCE(eff_validierung, 0) + budget * (? - 1.0),
-                budget           = budget * ?
+            SET eff_validierung = COALESCE(eff_validierung, 0) + budget_i * (? - 1.0),
+                budget           = budget_i * ?
             WHERE datum = ? AND tagestyp != 'geschlossen'
         """, (faktor, faktor, d))
 
