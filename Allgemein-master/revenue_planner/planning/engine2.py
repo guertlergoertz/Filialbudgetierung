@@ -129,35 +129,55 @@ class PlanningEngine2:
         iso_series = df["datum"].dt.strftime("%Y-%m-%d")
         return bool(((df["umsatz"] > 0) & (iso_series.isin(feiertag_iso))).any())
 
-    def _ref_wt_sums(self, ref_fil_nrs: set[str]) -> dict[int, float]:
-        """Wochentagsumsatz-Summen aller Referenzfilialen über den gesamten Basiszeitraum."""
+    def _ref_wt_sums(self, ref_fil_nrs: set[str],
+                     date_from: pd.Timestamp | None = None,
+                     date_to: pd.Timestamp | None = None) -> dict[int, float]:
+        """Wochentagsumsatz-Summen aller Referenzfilialen, optional auf ein Zeitfenster begrenzt.
+
+        date_from / date_to sind inklusive Grenzen. Ohne Angabe wird der volle Basiszeitraum
+        verwendet. Durch Übergabe des filial-spezifischen Zeitfensters (Zähler = Nenner)
+        wird ein systematisch zu kleiner Anteil für neue Filialen vermieden.
+        """
         e = self.e
-        base_end = e.base_mask_end
-        base_start_ts = pd.Timestamp(e.base_start)
+        d_from = date_from if date_from is not None else pd.Timestamp(e.base_start)
+        d_to = date_to if date_to is not None else e.base_mask_end - pd.Timedelta(days=1)
         result: dict[int, float] = {w: 0.0 for w in range(7)}
         for fil_nr in ref_fil_nrs:
             df = e._branch_base_ist(fil_nr)
-            df = df[(df["datum"] >= base_start_ts) & (df["datum"] < base_end) & (df["umsatz"] > 0)]
+            df = df[(df["datum"] >= d_from) & (df["datum"] <= d_to) & (df["umsatz"] > 0)]
             if df.empty:
                 continue
             for w, grp in df.groupby(df["datum"].dt.weekday):
                 result[int(w)] += float(grp["umsatz"].sum())
         return result
 
-    def _wt_shares_for_branch(self, fil_nr: str, ref_wt_sums: dict[int, float]) -> dict[int, float]:
+    def _wt_shares_for_branch(self, fil_nr: str, ref_fil_nrs: set[str]) -> dict[int, float]:
         """Wochentagsanteil dieser Filiale relativ zu den Referenzfilialen.
 
-        Für Wochentage ohne historischen IST (z. B. erst kürzlich sonntags geöffnet)
-        wird der Durchschnittsanteil über alle anderen Wochentage als Fallback verwendet,
-        damit diese Tage nicht mit Budget 0 geplant werden.
+        Zähler und Nenner werden auf denselben Zeitraum eingeschränkt (nach 14-Tage-Blackout),
+        damit kein systematisch zu kleiner Anteil entsteht. Für Wochentage ohne historischen IST
+        (z. B. erst kürzlich sonntags geöffnet) wird der Durchschnittsanteil aller anderen
+        Wochentage als Fallback verwendet.
         """
         e = self.e
         df = e._branch_base_ist(fil_nr)
         df = df[df["umsatz"] >= _MIN_IST]
+
+        eroeff = e.filialen.get(fil_nr, {}).get("eroeffnung")
+        if eroeff:
+            cutoff = date.fromisoformat(eroeff) + timedelta(days=_BLACKOUT_DAYS)
+            df = df[df["datum"] >= pd.Timestamp(cutoff)]
+
+        if df.empty:
+            return {w: 0.0 for w in range(7)}
+
+        date_from = df["datum"].min()
+        date_to = df["datum"].max()
+        ref_wt_sums = self._ref_wt_sums(ref_fil_nrs, date_from=date_from, date_to=date_to)
+
         new_by_wt: dict[int, float] = {w: 0.0 for w in range(7)}
-        if not df.empty:
-            for w, grp in df.groupby(df["datum"].dt.weekday):
-                new_by_wt[int(w)] = float(grp["umsatz"].sum())
+        for w, grp in df.groupby(df["datum"].dt.weekday):
+            new_by_wt[int(w)] = float(grp["umsatz"].sum())
         shares = {w: (new_by_wt[w] / ref_wt_sums[w] if ref_wt_sums.get(w, 0.0) > 0 else 0.0)
                   for w in range(7)}
         filled = [v for v in shares.values() if v > 0]
@@ -415,11 +435,30 @@ class PlanningEngine2:
                         shift_ferien[base_d.month] -= markup
 
         # Phase 3: Monatsumsatz finalisieren + auf Tage verteilen
+
+        # Vollimputation vorberechnen: Wenn ein Monat >5 offene Tage ohne Basis-IST hat,
+        # werden alle Tage des Monats hochgerechnet (monat_plan wird auf 0 gesetzt,
+        # da der Dreisatz bei so vielen Lücken kein verlässliches Ergebnis liefert).
+        imputed_count_by_month: dict[int, int] = {}
+        for _m in range(1, 13):
+            if ref_day_budgets is None or wt_shares is None:
+                imputed_count_by_month[_m] = 0
+            else:
+                imputed_count_by_month[_m] = sum(
+                    1 for dm in day_meta[_m]
+                    if not dm["closed"] and dm["base_ist"] < _MIN_IST
+                )
+
         results: list[DayPlan] = []
         for month in range(1, 13):
             ov = override_val[month]
             metas = day_meta[month]
-            if ov is not None:
+            vollimputation = imputed_count_by_month[month] > 5
+
+            if vollimputation:
+                m0 = m1 = m2 = m3 = 0.0
+                sft = sfer = 0.0
+            elif ov is not None:
                 m0 = m1 = m2 = m3 = ov
                 sft = sfer = 0.0
             else:
@@ -439,7 +478,7 @@ class PlanningEngine2:
             for m in metas:
                 imputed_budget: float | None = None
                 if ref_day_budgets is not None and wt_shares is not None and not m["closed"]:
-                    if m["base_ist"] < _MIN_IST:
+                    if vollimputation or m["base_ist"] < _MIN_IST:
                         is_feiertag = m["tagestyp"] == "feiertag"
                         if is_feiertag:
                             if had_feiertag_ist:
@@ -583,9 +622,15 @@ class PlanningEngine2:
         base_df["ym"] = base_df["datum"].dt.to_period("M")
 
         all_monthly_ist: dict[str, dict[tuple[int, int], float]] = {}
+        all_monthly_ist_daycounts: dict[str, dict[tuple[int, int], int]] = {}
         for fil_nr, grp_df in base_df.groupby("fil_nr"):
             mo_sums = grp_df.groupby("ym")["umsatz"].sum()
             all_monthly_ist[str(fil_nr)] = {(p.year, p.month): float(v) for p, v in mo_sums.items()}
+            ist_days = grp_df[grp_df["umsatz"] >= _MIN_IST]
+            mo_counts = ist_days.groupby("ym")["datum"].count()
+            all_monthly_ist_daycounts[str(fil_nr)] = {
+                (p.year, p.month): int(v) for p, v in mo_counts.items()
+            }
 
         # Alle Kalendermonate im Basiszeitraum.
         all_base_months: list[tuple[int, int]] = []
@@ -614,14 +659,46 @@ class PlanningEngine2:
             if all(s > 0 for s in month_sums):
                 referenz_filialen.add(fil_nr)
 
-        # Wochentags-Summen der Referenzfilialen einmalig vorberechnen.
-        ref_wt_sums = self._ref_wt_sums(referenz_filialen)
+        # Lücken-Filialen: Bestandsfilialen mit Tages-IST-Lücken im Basiszeitraum.
+        # Kein kompletter Monat ist leer (sonst wären sie neue_filialen), aber einzelne
+        # Tage fehlen — z. B. neu geöffneter Wochentag oder temporäre Schließung.
+        # Check 1: Ein Monat hat >5 Tage weniger IST als der Monat mit den meisten IST-Tagen.
+        # Check 2: Ein Wochentag hat in manchen Monaten 0 IST, in anderen > 0.
+        lücken_filialen: set[str] = set()
+        for fil_nr in active:
+            if fil_nr in neue_filialen:
+                continue
+            day_counts = all_monthly_ist_daycounts.get(fil_nr, {})
+            counts_list = [day_counts.get(ym, 0) for ym in all_base_months]
+            if counts_list:
+                max_count = max(counts_list)
+                if any(max_count - c > 5 for c in counts_list):
+                    lücken_filialen.add(fil_nr)
+                    continue
+            fil_df = base_df[
+                (base_df["fil_nr"] == fil_nr) & (base_df["umsatz"] >= _MIN_IST)
+            ].copy()
+            if not fil_df.empty:
+                fil_df["_wt"] = fil_df["datum"].dt.weekday
+                wt_month = (
+                    fil_df.groupby(["ym", "_wt"])["datum"].count().unstack(fill_value=0)
+                )
+                for wt in range(7):
+                    if wt in wt_month.columns:
+                        col = wt_month[wt]
+                        if (col == 0).any() and (col > 0).any():
+                            lücken_filialen.add(fil_nr)
+                            break
 
-        # Je neue Filiale: Wochentagsanteile und Feiertag-Flag vorberechnen.
+        # Lücken-Filialen aus Referenz ausschließen (ihre IST-Daten sind lückenhaft).
+        referenz_filialen -= lücken_filialen
+
+        # Wochentagsanteile für neue Filialen und Lücken-Filialen vorberechnen.
+        # _wt_shares_for_branch bestimmt das filial-spezifische Zeitfenster intern.
         wt_shares_cache: dict[str, dict[int, float]] = {}
         feiertag_cache: dict[str, bool] = {}
-        for fil_nr in neue_filialen:
-            wt_shares_cache[fil_nr] = self._wt_shares_for_branch(fil_nr, ref_wt_sums)
+        for fil_nr in neue_filialen | lücken_filialen:
+            wt_shares_cache[fil_nr] = self._wt_shares_for_branch(fil_nr, referenz_filialen)
             feiertag_cache[fil_nr] = self._branch_had_feiertag_ist(fil_nr)
 
         # Pass 1: Bestandsfilialen und Planjahr-Neueröffnungen (ohne Imputation).
@@ -630,7 +707,7 @@ class PlanningEngine2:
         n_total = len(active)
         done = 0
         for fil_nr in active:
-            if fil_nr in neue_filialen:
+            if fil_nr in neue_filialen or fil_nr in lücken_filialen:
                 continue
             fil = self.filialen.get(fil_nr, {})
             eroeff_str = fil.get("eroeffnung")
@@ -652,8 +729,8 @@ class PlanningEngine2:
             if progress_callback:
                 progress_callback(done, n_total, fil_nr)
 
-        # Pass 2: Filialen mit IST-Lücken — Tage ohne Basis-IST werden imputiert.
-        for fil_nr in neue_filialen:
+        # Pass 2: Filialen mit IST-Lücken und Lücken-Filialen — Tage ohne Basis-IST werden imputiert.
+        for fil_nr in neue_filialen | lücken_filialen:
             branch_results = self.plan_branch(
                 fil_nr,
                 ref_day_budgets=ref_day_budgets,
