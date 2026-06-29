@@ -190,6 +190,9 @@ class PlanningEngine:
     def _compute_base_window(self):
         """Letzter abgeschlossener Monat vor Stichtag → 12-Monats-Fenster."""
         stichtag = self.p.stichtag or date.today()
+        # For retroactive planning: clamp stichtag so the base window never
+        # overlaps with or reaches into the plan year.
+        stichtag = min(stichtag, date(self.p.planjahr, 1, 1))
         last_complete = stichtag.replace(day=1) - timedelta(days=1)
         self.base_end_year = last_complete.year
         self.base_end_month = last_complete.month

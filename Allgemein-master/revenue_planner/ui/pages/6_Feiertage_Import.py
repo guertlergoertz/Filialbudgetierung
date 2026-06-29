@@ -347,7 +347,7 @@ def _auto_datumsmapping(conn_db, plan_yr: int) -> str:
             "SELECT * FROM parameter WHERE planjahr=?", (plan_yr,)
         ).fetchone()
         today_dm = date.today()
-        stichtag_dm = date(today_dm.year, 1, 1) if plan_yr <= today_dm.year else today_dm
+        stichtag_dm = date(plan_yr, 1, 1) if plan_yr <= today_dm.year else today_dm
         params = PlanParams(
             planjahr=plan_yr,
             stichtag=stichtag_dm,

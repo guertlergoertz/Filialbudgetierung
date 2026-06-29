@@ -83,10 +83,14 @@ def _ferien_base_day(period: dict, woche: int, wt: int, blocked, plan_month: int
 
     # No usable same-weekday day inside the period — Ferienabschlag case.
     # Search FORWARD first (nearest normal day after ferien end), then backward.
+    # Stop forward search at the VJ calendar year boundary so the fallback never
+    # lands in the plan year (e.g. Dec VJ period → Jan of plan year).
     alt_base = vj_ende + timedelta(days=1)
     days_ahead = (wt - alt_base.weekday()) % 7
     for shift in range(0, 60):
         alt = alt_base + timedelta(days=days_ahead) + timedelta(weeks=shift)
+        if alt.year > vj_ende.year:
+            break
         if not blocked(alt):
             return alt, True
     alt_base2 = vj_start - timedelta(days=1)

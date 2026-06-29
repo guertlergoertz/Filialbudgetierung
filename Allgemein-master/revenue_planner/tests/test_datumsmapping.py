@@ -213,3 +213,132 @@ def test_normal_day_does_not_map_to_vj_sondertag(dm_conn):
         assert r["mapping_art"] in ("iso_kw",), (
             f"unexpected mapping_art '{r['mapping_art']}' for normal day {r['plan_datum']}"
         )
+
+
+# ── Retroactive planning: Planjahr 2025 ────────────────────────────────────
+#
+# These tests verify that planning for a past year (2025) works correctly even
+# when no explicit stichtag is passed (default = today = 2026-xx-xx). The engine
+# must clamp the stichtag to date(planjahr, 1, 1), giving a base window of
+# Jan–Dec 2024 for planjahr 2025.
+
+PUBLIC_HOLIDAYS_2025 = [
+    ("2025-01-01", "2024-01-01", "Neujahr", "alle", "feiertag"),
+    ("2025-01-06", "2024-01-06", "Heilige Drei Könige", "BW", "feiertag"),
+    ("2025-12-25", "2024-12-25", "1. Weihnachtstag", "alle", "feiertag"),
+    ("2025-12-26", "2024-12-26", "2. Weihnachtstag", "alle", "feiertag"),
+]
+
+FERIEN_KALENDER_2025 = [
+    # VJ 2024 fragments
+    ("BW", "Weihnachtsferien", 2024, "2024-01-01", "2024-01-05"),
+    ("BW", "Weihnachtsferien", 2024, "2024-12-23", "2024-12-31"),
+    ("BW", "Pfingstferien",    2024, "2024-05-21", "2024-06-01"),
+    ("BW", "Sommerferien",     2024, "2024-08-01", "2024-09-13"),
+    ("BW", "Herbstferien",     2024, "2024-10-28", "2024-11-01"),
+    # Plan year 2025 fragments
+    ("BW", "Weihnachtsferien", 2025, "2025-01-01", "2025-01-04"),
+    ("BW", "Weihnachtsferien", 2025, "2025-12-22", "2025-12-31"),
+    ("BW", "Pfingstferien",    2025, "2025-06-10", "2025-06-20"),
+    ("BW", "Sommerferien",     2025, "2025-07-31", "2025-09-13"),
+    ("BW", "Herbstferien",     2025, "2025-10-27", "2025-10-31"),
+]
+
+
+@pytest.fixture
+def dm_conn_2025():
+    """In-memory DB for retroactive planjahr=2025 — no explicit stichtag,
+    so the engine's clamp to date(2025, 1, 1) is exercised."""
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(DDL)
+    _migrate(conn)
+    conn.execute("INSERT INTO filialen (fil_nr, bezeichnung, bundesland) VALUES ('1','F','BW')")
+    conn.executemany(
+        "INSERT INTO feiertage (datum_plan, datum_vj, name, bundesland, art) VALUES (?,?,?,?,?)",
+        PUBLIC_HOLIDAYS_2025,
+    )
+    conn.executemany(
+        "INSERT INTO ferien_kalender (bundesland, art, jahr, start, ende) VALUES (?,?,?,?,?)",
+        FERIEN_KALENDER_2025,
+    )
+    conn.commit()
+    # No stichtag — tests the automatic clamp to date(2025, 1, 1)
+    eng = PlanningEngine(conn, PlanParams(planjahr=2025))
+    generate_datumsmapping(conn, 2025, eng)
+    yield conn
+    conn.close()
+
+
+def _vj_ferien_days_2024(bl="BW") -> set[str]:
+    from planning.engine import _date_range
+    days: set[str] = set()
+    for b, _art, jahr, s, e in FERIEN_KALENDER_2025:
+        if b == bl and jahr == 2024:
+            for d in _date_range(date.fromisoformat(s), date.fromisoformat(e)):
+                days.add(d.isoformat())
+    return days
+
+
+def test_2025_no_base_datum_in_plan_year(dm_conn_2025):
+    """With no explicit stichtag, base window must be Jan–Dec 2024.
+    No base_datum may fall in 2025 or later."""
+    rows = dm_conn_2025.execute(
+        "SELECT plan_datum, base_datum FROM datumsmapping WHERE bundesland='BW'"
+    ).fetchall()
+    assert rows, "no datumsmapping rows for 2025"
+    for r in rows:
+        assert r["base_datum"] < "2025-01-01", (
+            f"{r['plan_datum']} maps to {r['base_datum']} — base_datum must be < 2025"
+        )
+
+
+def test_2025_neujahr_maps_to_2024(dm_conn_2025):
+    """Neujahr 2025-01-01 must map to its datum_vj: 2024-01-01."""
+    base = _base_of(dm_conn_2025, "2025-01-01")
+    assert base == "2024-01-01", f"expected 2024-01-01, got {base}"
+
+
+def test_2025_weihnachten_maps_to_2024(dm_conn_2025):
+    """Christmas holidays 2025 must map to their datum_vj in 2024."""
+    assert _base_of(dm_conn_2025, "2025-12-25") == "2024-12-25"
+    assert _base_of(dm_conn_2025, "2025-12-26") == "2024-12-26"
+
+
+def test_2025_dec_24_31_map_to_same_calendar_date(dm_conn_2025):
+    """Plan Dec 24/31 in 2025 compare to the same calendar date in 2024."""
+    assert _base_of(dm_conn_2025, "2025-12-24") == "2024-12-24"
+    assert _base_of(dm_conn_2025, "2025-12-31") == "2024-12-31"
+
+
+def test_2025_weihnachtsferien_january_maps_to_january(dm_conn_2025):
+    """Jan 2025 Weihnachtsferien must map to a January 2024 ferien day."""
+    base = _base_of(dm_conn_2025, "2025-01-02")
+    assert base.startswith("2024-01"), f"expected January 2024 base, got {base}"
+    assert base in _vj_ferien_days_2024(), "January 2024 base must itself be a ferien day"
+
+
+def test_2025_pfingstferien_maps_into_vj_pfingstferien(dm_conn_2025):
+    """A Pfingstferien day in 2025 must compare with a day inside VJ Pfingstferien 2024."""
+    base = _base_of(dm_conn_2025, "2025-06-11")
+    assert "2024-05-21" <= base <= "2024-06-01", f"base {base} not in VJ Pfingstferien 2024"
+
+
+def test_2025_ferien_base_never_holiday_or_quasi_holiday(dm_conn_2025):
+    """No 2025 ferien plan day may map to a public holiday or to Dec 24/31."""
+    from planning.engine import is_special_quasi_feiertag
+    vj_holidays = {h[1] for h in PUBLIC_HOLIDAYS_2025 if h[1]}
+    plan_holidays = {h[0] for h in PUBLIC_HOLIDAYS_2025}
+    rows = dm_conn_2025.execute(
+        "SELECT plan_datum, base_datum FROM datumsmapping "
+        "WHERE bundesland='BW' AND plan_typ='ferien'"
+    ).fetchall()
+    assert rows, "no ferien mapping rows for 2025"
+    for r in rows:
+        b = r["base_datum"]
+        if is_special_quasi_feiertag(date.fromisoformat(r["plan_datum"])):
+            continue
+        assert b not in vj_holidays and b not in plan_holidays, \
+            f"{r['plan_datum']} maps to holiday {b}"
+        assert not is_special_quasi_feiertag(date.fromisoformat(b)), \
+            f"{r['plan_datum']} maps to quasi-holiday {b}"
