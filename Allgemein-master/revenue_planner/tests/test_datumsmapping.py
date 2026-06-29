@@ -81,22 +81,27 @@ def dm_conn():
     conn.close()
 
 
-def _base_of(conn, iso: str) -> str:
+def _base_of(conn: sqlite3.Connection, iso: str) -> str:
     row = conn.execute(
         "SELECT base_datum FROM datumsmapping WHERE plan_datum=? AND bundesland='BW'",
         (iso,),
     ).fetchone()
+    assert row is not None, f"no datumsmapping row for plan_datum={iso}"
     return row["base_datum"]
 
 
-def _vj_ferien_days(bl="BW") -> set[str]:
+def _vj_ferien_days_for(kalender: list, bl: str, year: int) -> set[str]:
     from planning.engine import _date_range
-    days: set[str] = set()
-    for b, _art, jahr, s, e in FERIEN_KALENDER:
-        if b == bl and jahr == 2025:
-            for d in _date_range(date.fromisoformat(s), date.fromisoformat(e)):
-                days.add(d.isoformat())
-    return days
+    return {
+        d.isoformat()
+        for b, _art, jahr, s, e in kalender
+        if b == bl and jahr == year
+        for d in _date_range(date.fromisoformat(s), date.fromisoformat(e))
+    }
+
+
+def _vj_ferien_days(bl: str = "BW") -> set[str]:
+    return _vj_ferien_days_for(FERIEN_KALENDER, bl, 2025)
 
 
 def test_weihnachtsferien_january_maps_to_january(dm_conn):
@@ -270,14 +275,8 @@ def dm_conn_2025():
     conn.close()
 
 
-def _vj_ferien_days_2024(bl="BW") -> set[str]:
-    from planning.engine import _date_range
-    days: set[str] = set()
-    for b, _art, jahr, s, e in FERIEN_KALENDER_2025:
-        if b == bl and jahr == 2024:
-            for d in _date_range(date.fromisoformat(s), date.fromisoformat(e)):
-                days.add(d.isoformat())
-    return days
+def _vj_ferien_days_2024(bl: str = "BW") -> set[str]:
+    return _vj_ferien_days_for(FERIEN_KALENDER_2025, bl, 2024)
 
 
 def test_2025_no_base_datum_in_plan_year(dm_conn_2025):

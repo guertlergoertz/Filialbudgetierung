@@ -25,9 +25,8 @@ if st.button("🔄 Datumsmapping neu generieren", type="primary"):
     try:
         from planning.engine import PlanningEngine, PlanParams
         from planning.datumsmapping import generate_datumsmapping
-        from datetime import date as _today_date
-        _today = _today_date.today()
-        _stichtag = _today_date(planjahr, 1, 1) if planjahr <= _today.year else _today
+        _today = _date.today()
+        _stichtag = _date(planjahr, 1, 1) if planjahr <= _today.year else _today
         with st.spinner("Datumsmapping wird generiert…"):
             _engine = PlanningEngine(conn, PlanParams(planjahr=planjahr, stichtag=_stichtag))
             n = generate_datumsmapping(conn, planjahr, _engine)

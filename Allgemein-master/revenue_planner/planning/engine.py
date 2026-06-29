@@ -182,6 +182,7 @@ class PlanningEngine:
         self.conn = conn
         self.p = params
         self._ist_branch_cache: dict[str, pd.DataFrame] = {}
+        self._ferien_cache: dict[tuple, float] = {}
         self._compute_base_window()
         self._load_reference_data()
 
