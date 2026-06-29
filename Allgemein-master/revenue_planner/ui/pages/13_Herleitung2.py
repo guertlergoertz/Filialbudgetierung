@@ -479,7 +479,16 @@ def _make_sum_row(grp: pd.DataFrame, entity_col: str | None, entity_val: str,
         row["_sort"] = grp["_sort"].max()
     return row
 
-if entity_ebene == "Filiale" and "fil_nr" in agg.columns:
+if zeit_ebene == "Jahr":
+    if entity_ebene == "Filiale" and "fil_nr" in agg.columns:
+        _sum_row = _make_sum_row(agg, "fil_nr", "∑ Gesamt", "")
+        agg = pd.concat([agg, pd.DataFrame([_sum_row])], ignore_index=True)
+    elif entity_ebene == "Bundesland" and "bundesland" in agg.columns:
+        _sum_row = _make_sum_row(agg, "bundesland", "∑ Gesamt", "")
+        agg = pd.concat([agg, pd.DataFrame([_sum_row])], ignore_index=True)
+    # Gesamt + Jahr = eine Zeile, keine Summe nötig
+
+elif entity_ebene == "Filiale" and "fil_nr" in agg.columns:
     _pieces = []
     for _fv, _grp in agg.groupby("fil_nr", sort=True):
         _pieces.append(_grp)
@@ -493,7 +502,7 @@ elif entity_ebene == "Bundesland" and "bundesland" in agg.columns:
         _pieces.append(pd.DataFrame([_make_sum_row(_grp, "bundesland", f"∑ {_bv}")]))
     agg = pd.concat(_pieces, ignore_index=True) if _pieces else agg
 
-else:  # Gesamt
+else:  # Gesamt, nicht Jahr
     _sum_row = _make_sum_row(agg, None, "", "∑ Gesamt")
     agg = pd.concat([agg, pd.DataFrame([_sum_row])], ignore_index=True)
 
@@ -568,16 +577,6 @@ m1.metric("IST Basis", f"{_de(tot_vj)} €")
 m2.metric("= Budget II", f"{_de(tot_bud)} €")
 m3.metric("Δ €", f"{'+'  if tot_bud >= tot_vj else ''}{_de(tot_bud - tot_vj)} €")
 m4.metric("Δ %", f"{(tot_bud - tot_vj) / tot_vj * 100:+.1f} %" if tot_vj else "–")
-
-st.caption(
-    "Lesart: **IST Basis** = Tagesanteil × Kalender-Monatsumsatz Vorjahr. "
-    "Jede `+`-Spalte zeigt den additiven Effekt in €. "
-    "**=gew. Monatsumsatz** = Anteil × (M₀ + Δ WT + Δ Ferien + Δ Feiertag). "
-    "**= Budget I** = gewünschter Monatsumsatz + Öffnung + Hochrechnung + Preis. "
-    "**= Budget II** = Budget I + Validierung (endgültiges Tagesbudget). "
-    "**Abw.** = IST − Budget II. Interne Normierungsspalten (Norm) sind ausgeblendet."
-)
-st.divider()
 
 # ── Tabelle ───────────────────────────────────────────────────────────────────────────────────
 num_cols = ["IST Basis", "+ Wochentag", "+ Ferien", "+ Feiertag",
