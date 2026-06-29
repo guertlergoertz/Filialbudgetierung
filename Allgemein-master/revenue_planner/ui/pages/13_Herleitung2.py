@@ -156,7 +156,9 @@ if _cache_key not in st.session_state:
         if _gesperrte:
             _df_raw = _df_raw[~_df_raw["fil_nr"].isin(_gesperrte)]
 
-        _has_data = _df_raw.groupby("fil_nr")[["budget_i", "ist_vj"]].sum().abs().sum(axis=1) > 0
+        _check_cols = [c for c in ["budget_i", "ist_vj", "eff_fil_eroeffnung", "budget"]
+                       if c in _df_raw.columns]
+        _has_data = _df_raw.groupby("fil_nr")[_check_cols].sum().abs().sum(axis=1) > 0
         _df_raw = _df_raw[_df_raw["fil_nr"].isin(_has_data[_has_data].index)]
 
         _fil_eroeff = {

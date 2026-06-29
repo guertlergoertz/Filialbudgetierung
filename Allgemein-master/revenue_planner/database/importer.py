@@ -249,6 +249,8 @@ def detect_oeffnungstage(conn: sqlite3.Connection, force: bool = False) -> dict:
     cur = conn.cursor()
     existing_wd = {r[0] for r in cur.execute("SELECT DISTINCT fil_nr FROM filial_oeffnung").fetchall()}
 
+    _MEANINGFUL_REV = 100.0  # Mindest-Umsatz für „geöffnet"
+
     wd_branches = 0
     for fil_nr, g in df.groupby("fil_nr"):
         if not force and fil_nr in existing_wd:
@@ -256,7 +258,7 @@ def detect_oeffnungstage(conn: sqlite3.Connection, force: bool = False) -> dict:
         for wt in range(7):
             sub = g[g["wt"] == wt]
             total = len(sub)
-            with_rev = int((sub["umsatz"] > 0).sum())
+            with_rev = int((sub["umsatz"] >= _MEANINGFUL_REV).sum())
             offen = 1 if (total > 0 and with_rev / total >= 0.30) else 0
             cur.execute(
                 "INSERT OR REPLACE INTO filial_oeffnung (fil_nr, wochentag, offen) VALUES (?,?,?)",

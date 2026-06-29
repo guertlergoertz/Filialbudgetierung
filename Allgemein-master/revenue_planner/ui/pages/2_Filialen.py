@@ -57,6 +57,9 @@ def _truthy(val) -> bool:
 import re as _re
 
 
+_SAVED_KEY = "filialen_tab1_saved"
+
+
 @st.fragment
 def _render_tab1(conn):
     cols_needed = ["fil_nr", "bezeichnung", "bundesland", "eroeffnung_ende",
@@ -83,6 +86,12 @@ def _render_tab1(conn):
 
     st.markdown(f"**{len(df)} Filialen** in der Datenbank  "
                 "(Zeilen direkt bearbeiten – Änderungen werden automatisch gespeichert)")
+    st.info(
+        "**Schließdaten:** Filialen, die im **Basiszeitraum oder im Budgetjahr** schließen, "
+        "müssen mit einem **Schließdatum** versehen werden – andernfalls werden sie in der "
+        "Planung weiterhin als geöffnet behandelt. Gilt die Schließung für beide Zeiträume, "
+        "ist das jeweils relevante Datum einzutragen."
+    )
 
     edited = st.data_editor(
         df,
@@ -147,14 +156,18 @@ def _render_tab1(conn):
                 "Bitte Planwert eintragen."
             )
 
-    # Auto-save: detect changes and save immediately
-    db_fil_nrs = set(df["fil_nr"].dropna().astype(str).str.strip())
+    # Auto-save: detect changes against last-saved state (avoids scroll-to-top rerun)
+    _reference = st.session_state.pop(_SAVED_KEY, None)
+    if _reference is None:
+        _reference = df
+
+    _ref_fil_nrs = set(_reference["fil_nr"].dropna().astype(str).str.strip())
     edited_fil_nrs = set(
         str(r).strip()
         for r in edited["fil_nr"].dropna()
         if not _is_empty(str(r))
     )
-    deleted = db_fil_nrs - edited_fil_nrs
+    deleted = _ref_fil_nrs - edited_fil_nrs
 
     def _norm_cmp(d: pd.DataFrame) -> pd.DataFrame:
         d = d.copy()
@@ -169,11 +182,11 @@ def _render_tab1(conn):
 
     _changed = False
     try:
-        _df_cmp = df.set_index("fil_nr").sort_index()
+        _ref_cmp = _reference.set_index("fil_nr").sort_index()
         _ed_cmp = edited[edited["fil_nr"].apply(lambda x: not _is_empty(str(x)))].set_index("fil_nr").sort_index()
-        _df_cmp = _df_cmp[[c for c in _df_cmp.columns if c in _ed_cmp.columns]]
-        _ed_cmp = _ed_cmp[[c for c in _df_cmp.columns]]
-        _changed = not _norm_cmp(_df_cmp).equals(_norm_cmp(_ed_cmp)) or bool(deleted)
+        _ref_cmp = _ref_cmp[[c for c in _ref_cmp.columns if c in _ed_cmp.columns]]
+        _ed_cmp = _ed_cmp[[c for c in _ref_cmp.columns]]
+        _changed = not _norm_cmp(_ref_cmp).equals(_norm_cmp(_ed_cmp)) or bool(deleted)
     except Exception:
         _changed = True
 
@@ -230,7 +243,8 @@ def _render_tab1(conn):
         if deleted:
             msg += f" Gelöscht: {', '.join(sorted(deleted))}."
         st.toast(msg)
-        st.rerun(scope="fragment")
+        # Store saved state as new baseline — avoids extra rerun (and scroll-to-top)
+        st.session_state[_SAVED_KEY] = edited.copy()
 
 
 tab1, tab2 = st.tabs(["Filialen", "Massenimport"])

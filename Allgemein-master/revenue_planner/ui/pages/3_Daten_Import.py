@@ -165,7 +165,7 @@ if st.session_state.get("_do_import"):
         )
         _prog.empty()
 
-        det = detect_oeffnungstage(conn, force=False)
+        det = detect_oeffnungstage(conn, force=True)
         msg = f"✅ {n:,} Datensätze importiert."
         if det["weekday_branches"]:
             msg += (f" Öffnungstage für {det['weekday_branches']} Filiale(n) automatisch erkannt "

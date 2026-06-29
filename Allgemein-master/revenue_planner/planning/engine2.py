@@ -328,7 +328,8 @@ class PlanningEngine2:
     def plan_branch(self, fil_nr: str,
                     ref_day_budgets: dict[str, float] | None = None,
                     wt_shares: dict[int, float] | None = None,
-                    had_feiertag_ist: bool = False) -> list[DayPlan]:
+                    had_feiertag_ist: bool = False,
+                    umbau_hochrechnung_month: int | None = None) -> list[DayPlan]:
         e = self.e
         fil = self.filialen.get(fil_nr, {"bundesland": "RP"})
         bl = _normalize_bl(fil.get("bundesland", "RP") or "RP")
@@ -379,6 +380,11 @@ class PlanningEngine2:
                     eroeff_d = date.fromisoformat(eroeff_str)
                     if base_d < eroeff_d + timedelta(days=_BLACKOUT_DAYS):
                         base_ist = 0.0
+                # Umbau-Hochrechnung: Im End-Monat des Umbaus (Budgetjahr) wird der
+                # Basis-IST auf 0 gesetzt, damit vollimputation greift und der Monat
+                # wie bei neuen Filialen über Referenzfilialen hochgerechnet wird.
+                if umbau_hochrechnung_month is not None and month == umbau_hochrechnung_month and not closed:
+                    base_ist = 0.0
                 art = self._mapping_art(bl, d)
                 metas.append({
                     "d": d, "wt": d.weekday(), "closed": closed,
@@ -697,13 +703,30 @@ class PlanningEngine2:
             nxt = cur.month + 1
             cur = cur.replace(year=cur.year + (nxt - 1) // 12, month=(nxt - 1) % 12 + 1)
 
-        # Filialen mit IST-Lücken (mindestens ein Monat 0, mindestens ein Monat > 0).
+        # Neue Filialen: IST-Lücken nur wenn durch Eröffnung oder Umbau erklärbar.
         neue_filialen: set[str] = set()
         for fil_nr in active:
             mo = all_monthly_ist.get(fil_nr, {})
             month_sums = [mo.get(ym, 0.0) for ym in all_base_months]
             if any(s > 0 for s in month_sums) and any(s == 0.0 for s in month_sums):
-                neue_filialen.add(fil_nr)
+                fil = self.filialen.get(fil_nr, {})
+                if fil.get("eroeffnung") or fil.get("umbau_von"):
+                    neue_filialen.add(fil_nr)
+
+        # Umbau-Filialen mit Umbau-Ende im Budgetjahr: End-Monat wird hochgerechnet.
+        # Werden zu neue_filialen hinzugefügt, damit ref_day_budgets und wt_shares verfügbar sind.
+        umbau_endmonat: dict[str, int] = {}
+        for fil_nr in active:
+            fil = self.filialen.get(fil_nr, {})
+            ubis = fil.get("umbau_bis")
+            if ubis:
+                try:
+                    ubis_d = date.fromisoformat(ubis)
+                    if ubis_d.year == plan_year:
+                        umbau_endmonat[fil_nr] = ubis_d.month
+                except (ValueError, TypeError):
+                    pass
+        neue_filialen |= set(umbau_endmonat.keys())
 
         # Bestandsfilialen = aktive Filialen ohne IST-Lücken, dienen als Referenz.
         referenz_filialen: set[str] = set()
@@ -715,45 +738,10 @@ class PlanningEngine2:
             if all(s > 0 for s in month_sums):
                 referenz_filialen.add(fil_nr)
 
-        # Lücken-Filialen: Bestandsfilialen mit Tages-IST-Lücken im Basiszeitraum.
-        # Kein kompletter Monat ist leer (sonst wären sie neue_filialen), aber einzelne
-        # Tage fehlen — z. B. neu geöffneter Wochentag oder temporäre Schließung.
-        # Check 1: Ein Monat hat >5 Tage weniger IST als der Monat mit den meisten IST-Tagen.
-        # Check 2: Ein Wochentag hat in manchen Monaten 0 IST, in anderen > 0.
-        lücken_filialen: set[str] = set()
-        for fil_nr in active:
-            if fil_nr in neue_filialen:
-                continue
-            day_counts = all_monthly_ist_daycounts.get(fil_nr, {})
-            counts_list = [day_counts.get(ym, 0) for ym in all_base_months]
-            if counts_list:
-                max_count = max(counts_list)
-                if any(max_count - c > 5 for c in counts_list):
-                    lücken_filialen.add(fil_nr)
-                    continue
-            fil_df = base_df[
-                (base_df["fil_nr"] == fil_nr) & (base_df["umsatz"] >= _MIN_IST)
-            ].copy()
-            if not fil_df.empty:
-                fil_df["_wt"] = fil_df["datum"].dt.weekday
-                wt_month = (
-                    fil_df.groupby(["ym", "_wt"])["datum"].count().unstack(fill_value=0)
-                )
-                for wt in range(7):
-                    if wt in wt_month.columns:
-                        col = wt_month[wt]
-                        if (col == 0).any() and (col > 0).any():
-                            lücken_filialen.add(fil_nr)
-                            break
-
-        # Lücken-Filialen aus Referenz ausschließen (ihre IST-Daten sind lückenhaft).
-        referenz_filialen -= lücken_filialen
-
-        # Wochentagsanteile für neue Filialen und Lücken-Filialen vorberechnen.
-        # _wt_shares_for_branch bestimmt das filial-spezifische Zeitfenster intern.
+        # Wochentagsanteile für neue Filialen vorberechnen.
         wt_shares_cache: dict[str, dict[int, float]] = {}
         feiertag_cache: dict[str, bool] = {}
-        for fil_nr in neue_filialen | lücken_filialen:
+        for fil_nr in neue_filialen:
             wt_shares_cache[fil_nr] = self._wt_shares_for_branch(fil_nr, referenz_filialen)
             feiertag_cache[fil_nr] = self._branch_had_feiertag_ist(fil_nr)
 
@@ -763,7 +751,7 @@ class PlanningEngine2:
         n_total = len(active)
         done = 0
         for fil_nr in active:
-            if fil_nr in neue_filialen or fil_nr in lücken_filialen:
+            if fil_nr in neue_filialen:
                 continue
             fil = self.filialen.get(fil_nr, {})
             eroeff_str = fil.get("eroeffnung")
@@ -785,13 +773,14 @@ class PlanningEngine2:
             if progress_callback:
                 progress_callback(done, n_total, fil_nr)
 
-        # Pass 2: Filialen mit IST-Lücken und Lücken-Filialen — Tage ohne Basis-IST werden imputiert.
-        for fil_nr in neue_filialen | lücken_filialen:
+        # Pass 2: Filialen mit IST-Lücken (neue Filialen + Umbau-Ende im Budgetjahr).
+        for fil_nr in neue_filialen:
             branch_results = self.plan_branch(
                 fil_nr,
                 ref_day_budgets=ref_day_budgets,
                 wt_shares=wt_shares_cache[fil_nr],
                 had_feiertag_ist=feiertag_cache[fil_nr],
+                umbau_hochrechnung_month=umbau_endmonat.get(fil_nr),
             )
             out.extend(branch_results)
             done += 1
