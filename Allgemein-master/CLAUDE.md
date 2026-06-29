@@ -5,7 +5,7 @@
 >
 > **Pflicht am Sitzungsende (automatisch, ohne Aufforderung):**
 > 1. Relevante Docs aktualisieren (neue Erkenntnisse, TODOs, Architekturentscheidungen)
-> 2. Alle Änderungen committen und auf `master` pushen
+> 2. Alle Änderungen committen und auf `main` pushen
 
 ---
 
@@ -58,7 +58,7 @@ docs/
 
 ## 4. Entwicklungsregeln
 
-1. **Branch:** `master` (direkt, kein Feature-Branch).
+1. **Branch:** `main` (direkt, kein Feature-Branch).
 2. **Commits:** Aussagekräftige englische Commit-Messages.
 3. **Keine halben Implementierungen.** Zu große Tasks als TODO in `docs/open-issues.md`.
 4. **Keine Breaking Changes** an der additiven Effekt-Identität ohne Regressionstest.
