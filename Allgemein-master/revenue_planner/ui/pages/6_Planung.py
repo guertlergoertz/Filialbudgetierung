@@ -31,7 +31,7 @@ for _m in range(1, 13):
 
 # Basiszeitraum: full previous year when planjahr <= current year, rolling 12 months otherwise
 today = date.today()
-stichtag = date(today.year, 1, 1) if planjahr <= today.year else today
+stichtag = date(planjahr, 1, 1) if planjahr <= today.year else today
 
 params = PlanParams(
     planjahr=planjahr,

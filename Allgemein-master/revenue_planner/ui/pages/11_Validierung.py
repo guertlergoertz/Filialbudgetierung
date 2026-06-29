@@ -20,7 +20,7 @@ VALID_BL = set(_BL_NAME_TO_ABBR.values())
 
 # Gleiche Stichtagslogik wie 12_Planung2
 today = date.today()
-stichtag = date(today.year, 1, 1) if planjahr <= today.year else today
+stichtag = date(planjahr, 1, 1) if planjahr <= today.year else today
 engine = PlanningEngine(conn, PlanParams(planjahr=planjahr, stichtag=stichtag))
 
 checks = []  # (status: 'ok'|'warn'|'crit', titel, detail_df oder None, caption)

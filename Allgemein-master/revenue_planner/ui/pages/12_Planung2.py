@@ -30,7 +30,7 @@ for _m in range(1, 13):
     wachstum_monat[_m] = _cumul
 
 today = date.today()
-stichtag = date(today.year, 1, 1) if planjahr <= today.year else today
+stichtag = date(planjahr, 1, 1) if planjahr <= today.year else today
 
 params = PlanParams(
     planjahr=planjahr,
