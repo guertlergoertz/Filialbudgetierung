@@ -386,6 +386,21 @@ add("warn" if _no_umsatz_last else "ok",
     "Liegt ein Umbau vor, bitte 'Umbau von/bis' in den Filialstammdaten hinterlegen — "
     "im Umbau-Zeitraum werden keine Budgetwerte berechnet.")
 
+# 7c) Filialen mit nur einem der beiden Umbau-Felder gesetzt
+if "umbau_von" in _umbau_cols:
+    _half_umbau = [
+        {"Filiale": fn, "Bezeichnung": dict(f).get("bezeichnung", ""),
+         "umbau_von": ui.get("umbau_von", ""), "umbau_bis": ui.get("umbau_bis", "")}
+        for f in filialen
+        for fn, ui in [(str(f["fil_nr"]), _umbau_info.get(str(f["fil_nr"]), {}))]
+        if bool(ui.get("umbau_von")) != bool(ui.get("umbau_bis"))
+    ]
+    add("warn" if _half_umbau else "ok",
+        f"Filialen mit unvollständigen Umbau-Datumsangaben: {len(_half_umbau)}",
+        pd.DataFrame(_half_umbau) if _half_umbau else None,
+        "Nur ein Umbau-Datum gesetzt — Engine ignoriert Umbau-Zeitraum komplett. "
+        "Beide Felder 'Umbau von' und 'Umbau bis' müssen befüllt sein.")
+
 # 8) parameter_monat für Budgetjahr vorhanden?
 n_pm = conn.execute(
     "SELECT COUNT(*) AS n FROM parameter_monat WHERE planjahr=?", (planjahr,)

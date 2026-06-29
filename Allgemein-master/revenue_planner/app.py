@@ -160,14 +160,15 @@ with st.sidebar:
 # Check validation_status for menu badge
 _plaus_title = "Plausibilitätsprüfung"
 if _gmbh and _bj:
+    import sqlite3 as _sqlite3, logging as _log_app
     try:
         _vs_row = _conn_app.execute(
             "SELECT has_issue FROM validation_status WHERE planjahr=?", (_bj,)
         ).fetchone()
         if _vs_row and _vs_row["has_issue"]:
             _plaus_title = "Plausibilitätsprüfung ❌"
-    except Exception:
-        pass
+    except _sqlite3.OperationalError as _ve:
+        _log_app.debug("validation_status not available yet: %s", _ve)
 
 pages = st.navigation({
     " ": [

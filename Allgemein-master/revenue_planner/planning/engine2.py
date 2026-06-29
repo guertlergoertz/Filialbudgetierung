@@ -42,6 +42,7 @@ Additive Identität je Tag (exakt):
               + + Hochrechnung
               + + Preis
               + + Validierung
+              + + Fil.Eröffnung  (nur für neue Filialen ohne IST-Basisdaten)
 
 eff_verteilung und eff_norm werden immer als 0.0 geschrieben (Spalten bleiben
 im Schema für Rückwärtskompatibilität, sind aber rechnerisch leer).
@@ -303,8 +304,9 @@ class PlanningEngine2:
             try:
                 if date.fromisoformat(umbau_von_str) <= d <= date.fromisoformat(umbau_bis_str):
                     return True, "umbau", "", (fer[0] if fer else "")
-            except ValueError:
-                pass
+            except ValueError as _exc:
+                import logging as _log
+                _log.warning("umbau date parse error fil_nr=%s: %s", fil_nr, _exc)
         if not closed:
             if not e._is_open_weekday(fil_nr, wt):
                 closed = True
