@@ -296,6 +296,8 @@ def _migrate(conn: sqlite3.Connection):
         ("flag_kein_wachstum", "INTEGER NOT NULL DEFAULT 0"),
         ("geplanter_umsatz_monat", "REAL"),
         ("flag_gesperrt", "INTEGER NOT NULL DEFAULT 0"),
+        ("umbau_von", "TEXT"),
+        ("umbau_bis", "TEXT"),
     ]
     for col, definition in additions:
         if col not in existing:
@@ -433,6 +435,24 @@ def _migrate(conn: sqlite3.Connection):
         conn.execute("ALTER TABLE planung2 ADD COLUMN budget_i REAL")
     if plan2_cols and "gewuenschter_monatsumsatz" not in plan2_cols:
         conn.execute("ALTER TABLE planung2 ADD COLUMN gewuenschter_monatsumsatz REAL")
+    if plan2_cols and "eff_fil_eroeffnung" not in plan2_cols:
+        conn.execute("ALTER TABLE planung2 ADD COLUMN eff_fil_eroeffnung REAL DEFAULT 0.0")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS plausibilitaet_checkliste (
+            planjahr INTEGER NOT NULL,
+            item_key TEXT NOT NULL,
+            checked  INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (planjahr, item_key)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS validation_status (
+            planjahr   INTEGER PRIMARY KEY,
+            has_issue  INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT
+        )
+    """)
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS planwert_korrekturen2 (

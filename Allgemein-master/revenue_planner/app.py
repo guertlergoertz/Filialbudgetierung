@@ -157,6 +157,18 @@ with st.sidebar:
         st.divider()
 
 # ── Navigation ─────────────────────────────────────────────────────────────────────────────────
+# Check validation_status for menu badge
+_plaus_title = "Plausibilitätsprüfung"
+if _gmbh and _bj:
+    try:
+        _vs_row = _conn_app.execute(
+            "SELECT has_issue FROM validation_status WHERE planjahr=?", (_bj,)
+        ).fetchone()
+        if _vs_row and _vs_row["has_issue"]:
+            _plaus_title = "Plausibilitätsprüfung ❌"
+    except Exception:
+        pass
+
 pages = st.navigation({
     " ": [
         st.Page(str(BASE / "ui/pages/1_Startseite.py"),
@@ -180,7 +192,7 @@ pages = st.navigation({
     ],
     "Berechnung & Validierung": [
         st.Page(str(BASE / "ui/pages/11_Validierung.py"),
-                title="Plausibilitätsprüfung", icon=":material/checklist:"),
+                title=_plaus_title, icon=":material/checklist:"),
         st.Page(str(BASE / "ui/pages/12_Planung2.py"),
                 title="Planung ausführen",      icon=":material/calculate:"),
         st.Page(str(BASE / "ui/pages/13_Herleitung2.py"),

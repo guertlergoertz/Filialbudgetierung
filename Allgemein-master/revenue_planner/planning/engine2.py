@@ -293,15 +293,24 @@ class PlanningEngine2:
         feiertag_name = ""
         eroeff = fil.get("eroeffnung")
         ende = fil.get("eroeffnung_ende")
+        umbau_von_str = fil.get("umbau_von")
+        umbau_bis_str = fil.get("umbau_bis")
         if eroeff and date.fromisoformat(eroeff) > d:
             closed = True
         elif ende and date.fromisoformat(ende) < d:
             closed = True
-        elif not e._is_open_weekday(fil_nr, wt):
-            closed = True
-        elif ft and not e._is_open_feiertag(fil_nr, ft["name"]):
-            closed = True
-            feiertag_name = ft["name"]
+        elif umbau_von_str and umbau_bis_str:
+            try:
+                if date.fromisoformat(umbau_von_str) <= d <= date.fromisoformat(umbau_bis_str):
+                    return True, "umbau", "", (fer[0] if fer else "")
+            except ValueError:
+                pass
+        if not closed:
+            if not e._is_open_weekday(fil_nr, wt):
+                closed = True
+            elif ft and not e._is_open_feiertag(fil_nr, ft["name"]):
+                closed = True
+                feiertag_name = ft["name"]
         if closed:
             return True, "geschlossen", feiertag_name, (fer[0] if fer else "")
         if ft:
@@ -322,6 +331,14 @@ class PlanningEngine2:
         fil = self.filialen.get(fil_nr, {"bundesland": "RP"})
         bl = _normalize_bl(fil.get("bundesland", "RP") or "RP")
         py = self.p.planjahr
+
+        _eroeff_str = fil.get("eroeffnung")
+        _geplanter_umsatz = float(fil.get("geplanter_umsatz_monat") or 0)
+        is_neue_mit_planwert = (
+            _eroeff_str is not None
+            and _geplanter_umsatz > 0
+            and date.fromisoformat(_eroeff_str).year == py
+        )
 
         share_wt = self._weekday_share(fil_nr, fil, bl)
 
@@ -477,7 +494,14 @@ class PlanningEngine2:
 
             for m in metas:
                 imputed_budget: float | None = None
-                if ref_day_budgets is not None and wt_shares is not None and not m["closed"]:
+                fil_eroeffnung: float | None = None
+
+                if is_neue_mit_planwert and ov is not None and not m["closed"]:
+                    fil_eroeffnung = (
+                        round(ov / anzahl_offener_tage, 2)
+                        if anzahl_offener_tage > 0 else 0.0
+                    )
+                elif ref_day_budgets is not None and wt_shares is not None and not m["closed"]:
                     if vollimputation or m["base_ist"] < _MIN_IST:
                         is_feiertag = m["tagestyp"] == "feiertag"
                         if is_feiertag:
@@ -491,6 +515,7 @@ class PlanningEngine2:
                     fil_nr, bl, m, m0, m1, m2, m3, sft, sfer,
                     summe_raw_basis_ist, anzahl_offener_tage,
                     imputed_budget=imputed_budget,
+                    fil_eroeffnung_budget=fil_eroeffnung,
                 ))
 
         return results
@@ -522,7 +547,8 @@ class PlanningEngine2:
                    m0: float, m1: float, m2: float, m3: float,
                    sft: float, sfer: float,
                    summe_raw_basis_ist: float, anzahl_offener_tage: int,
-                   imputed_budget: float | None = None) -> DayPlan:
+                   imputed_budget: float | None = None,
+                   fil_eroeffnung_budget: float | None = None) -> DayPlan:
         """Baut einen DayPlan für einen Tag auf.
 
         Neue additive Zerlegung (Budget II = Σ aller Effekte):
@@ -548,7 +574,22 @@ class PlanningEngine2:
                 eff_ferien=0.0, eff_feiertag=0.0, eff_norm=0.0,
                 budget=0.0, budget_i=0.0, gewuenschter_monatsumsatz=0.0,
                 monat_basis=round(m0, 2), monat_hoch=round(m1, 2), monat_plan=round(m3, 2),
-                tagestyp="geschlossen", feiertag_name=m["feiertag_name"],
+                tagestyp=m["tagestyp"], feiertag_name=m["feiertag_name"],
+                ferien_art=m["ferien_art"], normalisierung=0.0,
+            )
+
+        # Fil.Eröffnung: neue Filialen mit Planumsatz — kein IST-Basis, Wert in eff_fil_eroeffnung
+        if fil_eroeffnung_budget is not None:
+            return DayPlan(
+                fil_nr=fil_nr, datum=d, wochentag=m["wt"], bundesland=bl,
+                ist_vj=0.0, eff_oeffnung=0.0, eff_hochrechnung=0.0,
+                eff_verteilung=0.0, eff_wochentag=0.0, eff_preis=0.0,
+                eff_ferien=0.0, eff_feiertag=0.0, eff_norm=0.0,
+                eff_fil_eroeffnung=fil_eroeffnung_budget,
+                budget=fil_eroeffnung_budget, budget_i=0.0,
+                gewuenschter_monatsumsatz=0.0,
+                monat_basis=round(m0, 2), monat_hoch=round(m1, 2), monat_plan=round(m3, 2),
+                tagestyp=m["tagestyp"], feiertag_name=m["feiertag_name"],
                 ferien_art=m["ferien_art"], normalisierung=0.0,
             )
 
@@ -763,6 +804,7 @@ class PlanningEngine2:
             "eff_ferien": r.eff_ferien, "eff_feiertag": r.eff_feiertag,
             "eff_norm": r.eff_norm, "budget": r.budget,
             "budget_i": r.budget_i, "gewuenschter_monatsumsatz": r.gewuenschter_monatsumsatz,
+            "eff_fil_eroeffnung": r.eff_fil_eroeffnung,
             "monat_basis": r.monat_basis, "monat_hoch": r.monat_hoch, "monat_plan": r.monat_plan,
             "monatsumsatz_ist_hoch": r.monat_hoch, "monatsumsatz_plan": r.monat_plan,
             "tagesumsatz_plan": r.budget, "liefer_plan": 0.0, "gesamt_plan": r.budget,
@@ -774,7 +816,7 @@ class PlanningEngine2:
                (fil_nr, datum, wochentag, bundesland, ist_vj,
                 eff_oeffnung, eff_hochrechnung, eff_verteilung, eff_wochentag, eff_preis,
                 eff_ferien, eff_feiertag, eff_norm, budget,
-                budget_i, gewuenschter_monatsumsatz,
+                budget_i, gewuenschter_monatsumsatz, eff_fil_eroeffnung,
                 monat_basis, monat_hoch, monat_plan,
                 monatsumsatz_ist_hoch, monatsumsatz_plan, tagesumsatz_plan,
                 liefer_plan, gesamt_plan, tagestyp, feiertag_name, ferien_art, normalisierung)
@@ -782,7 +824,7 @@ class PlanningEngine2:
                (:fil_nr, :datum, :wochentag, :bundesland, :ist_vj,
                 :eff_oeffnung, :eff_hochrechnung, :eff_verteilung, :eff_wochentag, :eff_preis,
                 :eff_ferien, :eff_feiertag, :eff_norm, :budget,
-                :budget_i, :gewuenschter_monatsumsatz,
+                :budget_i, :gewuenschter_monatsumsatz, :eff_fil_eroeffnung,
                 :monat_basis, :monat_hoch, :monat_plan,
                 :monatsumsatz_ist_hoch, :monatsumsatz_plan, :tagesumsatz_plan,
                 :liefer_plan, :gesamt_plan, :tagestyp, :feiertag_name, :ferien_art,

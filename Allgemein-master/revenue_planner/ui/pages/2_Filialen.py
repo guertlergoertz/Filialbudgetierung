@@ -54,12 +54,14 @@ def _truthy(val) -> bool:
     return str(val).strip().lower() in ("1", "true", "ja", "yes", "x")
 
 
-tab1, tab2 = st.tabs(["Filialen", "Massenimport"])
+import re as _re
 
-# ── Tab 1: Inline editable table ──────────────────────────────────────────
-with tab1:
+
+@st.fragment
+def _render_tab1(conn):
     cols_needed = ["fil_nr", "bezeichnung", "bundesland", "eroeffnung_ende",
-                   "flag_kein_wachstum", "flag_gesperrt", "eroeffnung", "geplanter_umsatz_monat"]
+                   "flag_kein_wachstum", "flag_gesperrt", "eroeffnung",
+                   "geplanter_umsatz_monat", "umbau_von", "umbau_bis"]
     existing_cols = [r[1] for r in conn.execute("PRAGMA table_info(filialen)").fetchall()]
     select_cols = [c for c in cols_needed if c in existing_cols]
     df = pd.read_sql(
@@ -69,12 +71,10 @@ with tab1:
         if c not in df.columns:
             df[c] = None
 
-    for col in ["eroeffnung", "eroeffnung_ende"]:
+    for col in ["eroeffnung", "eroeffnung_ende", "umbau_von", "umbau_bis"]:
         df[col] = pd.to_datetime(df[col], errors="coerce")
     df["flag_kein_wachstum"] = df["flag_kein_wachstum"].fillna(0).astype(bool)
     df["flag_gesperrt"] = df["flag_gesperrt"].fillna(0).astype(bool)
-    # Auto-detect XX/XXX in bezeichnung → vorschlagsweise gesperrt
-    import re as _re
     _xx_mask = df["bezeichnung"].fillna("").apply(lambda b: bool(_re.search(r'X{2,}', str(b), _re.IGNORECASE)))
     df.loc[_xx_mask, "flag_gesperrt"] = True
     df["geplanter_umsatz_monat"] = pd.to_numeric(
@@ -109,13 +109,22 @@ with tab1:
             "geplanter_umsatz_monat": st.column_config.NumberColumn(
                 "Geplanter Umsatz/Monat €",
                 min_value=0,
-                format="%.0f",
+                format=",.0f €",
                 width=180,
+            ),
+            "umbau_von": st.column_config.DateColumn(
+                "Umbau von", format="DD.MM.YYYY", width=100,
+                help="Beginn Umbauphase – in diesem Zeitraum werden keine Budgetwerte berechnet",
+            ),
+            "umbau_bis": st.column_config.DateColumn(
+                "Umbau bis", format="DD.MM.YYYY", width=100,
+                help="Ende Umbauphase",
             ),
         },
         column_order=[
             "fil_nr", "bezeichnung", "bundesland", "flag_gesperrt",
-            "eroeffnung_ende", "flag_kein_wachstum", "eroeffnung", "geplanter_umsatz_monat",
+            "eroeffnung_ende", "flag_kein_wachstum", "eroeffnung",
+            "geplanter_umsatz_monat", "umbau_von", "umbau_bis",
         ],
         num_rows="dynamic",
         use_container_width=True,
@@ -139,7 +148,6 @@ with tab1:
             )
 
     # Auto-save: detect changes and save immediately
-    import re as _re
     db_fil_nrs = set(df["fil_nr"].dropna().astype(str).str.strip())
     edited_fil_nrs = set(
         str(r).strip()
@@ -148,7 +156,6 @@ with tab1:
     )
     deleted = db_fil_nrs - edited_fil_nrs
 
-    # Compare DataFrames to detect any change
     _changed = False
     try:
         _df_cmp = df.set_index("fil_nr").sort_index()
@@ -171,6 +178,8 @@ with tab1:
             bezeichnung = str(row.get("bezeichnung") or "").strip() or None
             eroeffnung_iso = _to_iso(row.get("eroeffnung"))
             eroeffnung_ende_iso = _to_iso(row.get("eroeffnung_ende"))
+            umbau_von_iso = _to_iso(row.get("umbau_von"))
+            umbau_bis_iso = _to_iso(row.get("umbau_bis"))
             kein_wachstum = int(bool(row.get("flag_kein_wachstum")))
             gum = float(row.get("geplanter_umsatz_monat") or 0)
             _has_xx = bool(_re.search(r'X{2,}', str(bezeichnung or ""), _re.IGNORECASE))
@@ -179,10 +188,11 @@ with tab1:
             conn.execute("""
                 INSERT OR REPLACE INTO filialen
                     (fil_nr, bezeichnung, bundesland, eroeffnung, eroeffnung_ende,
-                     flag_kein_wachstum, flag_gesperrt, geplanter_umsatz_monat)
-                VALUES (?,?,?,?,?,?,?,?)
+                     flag_kein_wachstum, flag_gesperrt, geplanter_umsatz_monat,
+                     umbau_von, umbau_bis)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
             """, (fn, bezeichnung, bl, eroeffnung_iso, eroeffnung_ende_iso,
-                  kein_wachstum, gesperrt, gum))
+                  kein_wachstum, gesperrt, gum, umbau_von_iso, umbau_bis_iso))
 
             if eroeffnung_iso and gum > 0:
                 try:
@@ -209,7 +219,14 @@ with tab1:
         if deleted:
             msg += f" Gelöscht: {', '.join(sorted(deleted))}."
         st.toast(msg)
-        st.rerun()
+        st.rerun(scope="fragment")
+
+
+tab1, tab2 = st.tabs(["Filialen", "Massenimport"])
+
+# ── Tab 1: Inline editable table ──────────────────────────────────────────
+with tab1:
+    _render_tab1(conn)
 
 # ── Tab 2: Bulk import ─────────────────────────────────────────────────────
 with tab2:

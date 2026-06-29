@@ -16,6 +16,49 @@ planjahr = get_budgetjahr()
 st.title("Plausibilitätsprüfung")
 st.caption(f"Firma: **{get_gmbh()}** — Budgetjahr: **{planjahr}**")
 
+# ── Vorbereitungs-Checkliste ─────────────────────────────────────────────────
+CHECKLIST_ITEMS = [
+    ("stammdaten_import",   "Filialstammdaten importieren"),
+    ("deaktivierung",       "Filialen für die Budgetierung deaktivieren"),
+    ("filialschliessungen", "Filialschließungen hinterlegen"),
+    ("filialumbauten",      "Filialumbauten hinterlegen (Umbau von/bis)"),
+    ("kein_wachstum",       "Filialen mit keinem Wachstum kennzeichnen"),
+    ("filialoeffnungen",    "Filialeröffnungen: Datum + Planumsatz"),
+    ("umsatz_import",       "Umsatz-Import des Basiszeitraums"),
+    ("oeffnungstage",       "Filial-Öffnungstage"),
+    ("feiertage_ferien",    "Feiertage, Ferien und Sondertage"),
+    ("preisanpassung",      "Preisanpassung"),
+]
+_cl_rows = conn.execute(
+    "SELECT item_key, checked FROM plausibilitaet_checkliste WHERE planjahr=?",
+    (planjahr,)
+).fetchall()
+_cl_db_state = {r["item_key"]: bool(r["checked"]) for r in _cl_rows}
+
+_cl_header = st.empty()
+_cl_new_state: dict[str, bool] = {}
+with st.expander("📋 Vorbereitungs-Checkliste", expanded=True):
+    for _key, _label in CHECKLIST_ITEMS:
+        _val = st.checkbox(_label, value=_cl_db_state.get(_key, False), key=f"cl_{_key}")
+        _cl_new_state[_key] = _val
+
+_cl_all_checked = all(_cl_new_state.values())
+if not _cl_all_checked:
+    _cl_header.markdown("❌ **Vorbereitungs-Checkliste** — noch nicht alle Punkte erledigt")
+else:
+    _cl_header.markdown("✅ **Vorbereitungs-Checkliste** — alle Punkte erledigt")
+
+if _cl_new_state != _cl_db_state:
+    for _key, _checked in _cl_new_state.items():
+        conn.execute(
+            "INSERT OR REPLACE INTO plausibilitaet_checkliste (planjahr, item_key, checked) "
+            "VALUES (?,?,?)",
+            (planjahr, _key, int(_checked))
+        )
+    conn.commit()
+
+st.divider()
+
 VALID_BL = set(_BL_NAME_TO_ABBR.values())
 
 # Gleiche Stichtagslogik wie 12_Planung2
@@ -303,6 +346,46 @@ add("warn" if stale else "ok",
     pd.DataFrame(stale) if stale else None,
     "Möglicherweise geschlossene Filialen oder unvollständiger Import.")
 
+# 7b) Aktive Filialen ohne Umsatz im letzten Basismonat (möglicher Umbau)
+_last_base_day = engine.base_mask_end.date() - timedelta(days=1)
+_last_ym = f"{_last_base_day.year:04d}-{_last_base_day.month:02d}"
+_umbau_cols = {r[1] for r in conn.execute("PRAGMA table_info(filialen)").fetchall()}
+if "umbau_von" in _umbau_cols:
+    _umbau_info = {
+        str(r["fil_nr"]): {"umbau_von": r["umbau_von"] or "", "umbau_bis": r["umbau_bis"] or ""}
+        for r in conn.execute("SELECT fil_nr, umbau_von, umbau_bis FROM filialen").fetchall()
+    }
+else:
+    _umbau_info = {}
+_last_month_sums = {
+    str(r["fil_nr"]): float(r["s"])
+    for r in conn.execute(
+        "SELECT fil_nr, COALESCE(SUM(umsatz), 0) AS s FROM ist_umsatz "
+        "WHERE strftime('%Y-%m', datum)=? GROUP BY fil_nr",
+        (_last_ym,)
+    ).fetchall()
+}
+_no_umsatz_last = []
+for f in filialen:
+    fn = str(f["fil_nr"])
+    if fn not in ist_in_base:
+        continue
+    if _last_month_sums.get(fn, 0.0) == 0.0:
+        _ui = _umbau_info.get(fn, {})
+        _no_umsatz_last.append({
+            "Filiale": fn,
+            "Bezeichnung": f.get("bezeichnung", ""),
+            "Letzter Basismonat": _last_ym,
+            "Umbau von": _ui.get("umbau_von", ""),
+            "Umbau bis": _ui.get("umbau_bis", ""),
+        })
+add("warn" if _no_umsatz_last else "ok",
+    f"Aktive Filialen ohne Umsatz im letzten Basismonat ({_last_ym}): {len(_no_umsatz_last)}",
+    pd.DataFrame(_no_umsatz_last) if _no_umsatz_last else None,
+    "Diese Filialen werden bei der Planung hochgerechnet. "
+    "Liegt ein Umbau vor, bitte 'Umbau von/bis' in den Filialstammdaten hinterlegen — "
+    "im Umbau-Zeitraum werden keine Budgetwerte berechnet.")
+
 # 8) parameter_monat für Budgetjahr vorhanden?
 n_pm = conn.execute(
     "SELECT COUNT(*) AS n FROM parameter_monat WHERE planjahr=?", (planjahr,)
@@ -334,3 +417,11 @@ for status, titel, details, caption in checks:
     if details is not None and not details.empty:
         with st.expander(f"Details ({len(details)})"):
             st.dataframe(details, use_container_width=True, hide_index=True)
+
+# ── Validierungs-Status in DB speichern (für Menü-Badge in app.py) ────────────
+_has_issue = n_crit > 0 or n_warn > 0 or not _cl_all_checked
+conn.execute(
+    "INSERT OR REPLACE INTO validation_status (planjahr, has_issue, updated_at) VALUES (?,?,?)",
+    (planjahr, int(_has_issue), date.today().isoformat())
+)
+conn.commit()

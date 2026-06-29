@@ -37,7 +37,7 @@ def validiere_und_korrigiere_planwerte2(
                CAST(strftime('%m', datum) AS INTEGER)          AS monat
         FROM planung2
         WHERE CAST(strftime('%Y', datum) AS INTEGER) = ?
-          AND tagestyp != 'geschlossen'
+          AND tagestyp NOT IN ('geschlossen', 'umbau')
         GROUP BY datum
         ORDER BY datum
     """, (plan_jahr,)).fetchall()
@@ -140,8 +140,8 @@ def validiere_und_korrigiere_planwerte2(
         conn.execute("""
             UPDATE planung2
             SET eff_validierung = COALESCE(eff_validierung, 0) + budget_i * (? - 1.0),
-                budget           = budget_i * ?
-            WHERE datum = ? AND tagestyp != 'geschlossen'
+                budget           = budget_i * ? + COALESCE(eff_fil_eroeffnung, 0)
+            WHERE datum = ? AND tagestyp NOT IN ('geschlossen', 'umbau')
         """, (faktor, faktor, d))
 
     # Korrekturtabelle aktualisieren

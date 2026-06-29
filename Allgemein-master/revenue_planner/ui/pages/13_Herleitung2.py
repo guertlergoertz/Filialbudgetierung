@@ -89,7 +89,7 @@ if _cache_key not in st.session_state:
         _df_raw = pd.read_sql(
             "SELECT fil_nr, datum, bundesland, wochentag, ist_vj, "
             "eff_oeffnung, eff_hochrechnung, eff_wochentag, eff_preis, eff_ferien, eff_feiertag, "
-            "eff_validierung, budget_i, gewuenschter_monatsumsatz, budget, "
+            "eff_validierung, eff_fil_eroeffnung, budget_i, gewuenschter_monatsumsatz, budget, "
             "tagestyp, feiertag_name, ferien_art "
             "FROM planung2 WHERE CAST(strftime('%Y', datum) AS INTEGER)=?",
             conn, params=(planjahr,),
@@ -97,7 +97,7 @@ if _cache_key not in st.session_state:
 
         eff_cols = ["ist_vj", "eff_wochentag", "eff_ferien", "eff_feiertag",
                     "gewuenschter_monatsumsatz", "eff_oeffnung", "eff_hochrechnung",
-                    "eff_preis", "budget_i", "eff_validierung", "budget"]
+                    "eff_preis", "budget_i", "eff_validierung", "eff_fil_eroeffnung", "budget"]
         for col in eff_cols:
             if col not in _df_raw.columns:
                 _df_raw[col] = 0.0
@@ -194,7 +194,7 @@ if df_all.empty:
 
 eff_cols = ["ist_vj", "eff_wochentag", "eff_ferien", "eff_feiertag",
             "gewuenschter_monatsumsatz", "eff_oeffnung", "eff_hochrechnung",
-            "eff_preis", "budget_i", "eff_validierung", "budget"]
+            "eff_preis", "budget_i", "eff_validierung", "eff_fil_eroeffnung", "budget"]
 
 # ── Filter ─────────────────────────────────────────────────────────────────────────────────
 from datetime import date as _date
@@ -473,7 +473,7 @@ def _make_sum_row(grp: pd.DataFrame, entity_col: str | None, entity_val: str,
             row[_c] = float(grp[_c].sum())
     for _c in ("ist_aktuell", "_budget_for_ist"):
         if _c in grp.columns:
-            _valid = grp[_c].dropna()
+            _valid = pd.to_numeric(grp[_c], errors="coerce").dropna()
             row[_c] = float(_valid.sum()) if len(_valid) > 0 else None
     if "_sort" in grp.columns:
         row["_sort"] = grp["_sort"].max()
@@ -529,6 +529,7 @@ rename = {
     "eff_preis": "+ Preis",
     "budget_i": "= Budget I",
     "eff_validierung": "+ Validierung",
+    "eff_fil_eroeffnung": "+ Fil.Eröffnung",
     "budget": "= Budget II",
     "ist_aktuell": "= IST",
 }
@@ -554,34 +555,14 @@ else:
 
 ordered = lead + ["IST Basis", "+ Wochentag", "+ Ferien", "+ Feiertag",
                   "=gew. Monatsumsatz", "+ Öffnung", "+ Hochrechnung", "+ Preis",
-                  "= Budget I", "+ Validierung", "= Budget II", "= IST", "Abw. €", "Abw. %"]
+                  "= Budget I", "+ Validierung", "+ Fil.Eröffnung", "= Budget II",
+                  "= IST", "Abw. €", "Abw. %"]
 disp = disp[[c for c in ordered if c in disp.columns]]
-
-# ── Kennzahlen ──────────────────────────────────────────────────────────────────────────────
-tot_vj = agg["ist_vj"].sum()
-tot_bud = agg["budget"].sum()
-m1, m2, m3, m4 = st.columns(4)
-
-def _de(val) -> str:
-    try:
-        if pd.isna(val):
-            return "–"
-    except (TypeError, ValueError):
-        pass
-    try:
-        return f"{float(val):,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except (TypeError, ValueError):
-        return "–"
-
-m1.metric("IST Basis", f"{_de(tot_vj)} €")
-m2.metric("= Budget II", f"{_de(tot_bud)} €")
-m3.metric("Δ €", f"{'+'  if tot_bud >= tot_vj else ''}{_de(tot_bud - tot_vj)} €")
-m4.metric("Δ %", f"{(tot_bud - tot_vj) / tot_vj * 100:+.1f} %" if tot_vj else "–")
 
 # ── Tabelle ───────────────────────────────────────────────────────────────────────────────────
 num_cols = ["IST Basis", "+ Wochentag", "+ Ferien", "+ Feiertag",
             "=gew. Monatsumsatz", "+ Öffnung", "+ Hochrechnung", "+ Preis",
-            "= Budget I", "+ Validierung", "= Budget II", "= IST", "Abw. €"]
+            "= Budget I", "+ Validierung", "+ Fil.Eröffnung", "= Budget II", "= IST", "Abw. €"]
 
 def _fmt_de(val):
     try:
@@ -642,8 +623,10 @@ col_cfg = {
         help="Budget I = =gew. Monatsumsatz + Öffnung + Hochrechnung + Preis (vor Validierung)"),
     "+ Validierung":       st.column_config.TextColumn("+ Validierung",
         help="Wochentagsvalidierung: Korrektur auf Wochentagsschnitt (±10 %-Schwelle, 0 = kein Ausreißer)"),
+    "+ Fil.Eröffnung":     st.column_config.TextColumn("+ Fil.Eröffnung",
+        help="Geplanter Tagesumsatz für neue Filialen ohne IST-Basis (Planumsatz anteilig auf Öffnungstage)"),
     "= Budget II":         st.column_config.TextColumn("= Budget II",
-        help="Tagesbudget = Budget I + Validierung (endgültiger Planwert)"),
+        help="Tagesbudget = Budget I + Validierung + Fil.Eröffnung (endgültiger Planwert)"),
     "= IST":               st.column_config.TextColumn("= IST",
         help="Tatsächlich erreichter IST-Umsatz im Budgetjahr (soweit importiert)"),
     "Abw. €":        st.column_config.TextColumn("Abw. €",
