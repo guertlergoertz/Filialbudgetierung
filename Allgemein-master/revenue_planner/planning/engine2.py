@@ -507,7 +507,7 @@ class PlanningEngine2:
                     if vollimputation or m["base_ist"] < _MIN_IST:
                         is_feiertag = m["tagestyp"] == "feiertag"
                         if is_feiertag:
-                            if had_feiertag_ist:
+                            if had_feiertag_ist and m["base_ist"] >= _MIN_IST:
                                 ref_total = ref_day_budgets.get(m["d"].isoformat(), 0.0)
                                 imputed_budget = round(ref_total * wt_shares.get(6, 0.0), 2)
                         else:
@@ -577,6 +577,19 @@ class PlanningEngine2:
                 budget=0.0, budget_i=0.0, gewuenschter_monatsumsatz=0.0,
                 monat_basis=round(m0, 2), monat_hoch=round(m1, 2), monat_plan=round(m3, 2),
                 tagestyp=m["tagestyp"], feiertag_name=m["feiertag_name"],
+                ferien_art=m["ferien_art"], normalisierung=0.0,
+            )
+
+        # Feiertag ohne Basis-IST: Filiale war im Basiszeitraum an diesem Feiertag geschlossen
+        if m["tagestyp"] == "feiertag" and raw_basis_ist == 0 and imputed_budget is None:
+            return DayPlan(
+                fil_nr=fil_nr, datum=d, wochentag=m["wt"], bundesland=bl,
+                ist_vj=0.0, eff_oeffnung=0.0, eff_hochrechnung=0.0,
+                eff_verteilung=0.0, eff_wochentag=0.0, eff_preis=0.0,
+                eff_ferien=0.0, eff_feiertag=0.0, eff_norm=0.0,
+                budget=0.0, budget_i=0.0, gewuenschter_monatsumsatz=0.0,
+                monat_basis=round(m0, 2), monat_hoch=round(m1, 2), monat_plan=round(m3, 2),
+                tagestyp="geschlossen", feiertag_name=m["feiertag_name"],
                 ferien_art=m["ferien_art"], normalisierung=0.0,
             )
 

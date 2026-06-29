@@ -189,7 +189,7 @@ pages = st.navigation({
         st.Page(str(BASE / "ui/pages/8_Preisanpassung.py"),
                 title="Preisanpassung je Monat", icon=":material/trending_up:"),
         st.Page(str(BASE / "ui/pages/9_Schulfilialen.py"),
-                title="Schulfilialen",           icon=":material/school:"),
+                title="Ferienschließungen",      icon=":material/school:"),
     ],
     "Berechnung & Validierung": [
         st.Page(str(BASE / "ui/pages/11_Validierung.py"),

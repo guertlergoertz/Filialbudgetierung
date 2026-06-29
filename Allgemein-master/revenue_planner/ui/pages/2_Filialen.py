@@ -79,7 +79,7 @@ def _render_tab1(conn):
     df.loc[_xx_mask, "flag_gesperrt"] = True
     df["geplanter_umsatz_monat"] = pd.to_numeric(
         df["geplanter_umsatz_monat"], errors="coerce"
-    ).fillna(0.0)
+    )
 
     st.markdown(f"**{len(df)} Filialen** in der Datenbank  "
                 "(Zeilen direkt bearbeiten – Änderungen werden automatisch gespeichert)")
@@ -109,7 +109,7 @@ def _render_tab1(conn):
             "geplanter_umsatz_monat": st.column_config.NumberColumn(
                 "Geplanter Umsatz/Monat €",
                 min_value=0,
-                format=",.0f €",
+                format="%.0f €",
                 width=180,
             ),
             "umbau_von": st.column_config.DateColumn(
@@ -156,13 +156,24 @@ def _render_tab1(conn):
     )
     deleted = db_fil_nrs - edited_fil_nrs
 
+    def _norm_cmp(d: pd.DataFrame) -> pd.DataFrame:
+        d = d.copy()
+        for c in ["eroeffnung", "eroeffnung_ende", "umbau_von", "umbau_bis"]:
+            if c in d.columns:
+                d[c] = pd.to_datetime(d[c], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+        if "geplanter_umsatz_monat" in d.columns:
+            d["geplanter_umsatz_monat"] = (
+                pd.to_numeric(d["geplanter_umsatz_monat"], errors="coerce").round(2).fillna(-1.0)
+            )
+        return d
+
     _changed = False
     try:
         _df_cmp = df.set_index("fil_nr").sort_index()
         _ed_cmp = edited[edited["fil_nr"].apply(lambda x: not _is_empty(str(x)))].set_index("fil_nr").sort_index()
         _df_cmp = _df_cmp[[c for c in _df_cmp.columns if c in _ed_cmp.columns]]
         _ed_cmp = _ed_cmp[[c for c in _df_cmp.columns]]
-        _changed = not _df_cmp.equals(_ed_cmp) or bool(deleted)
+        _changed = not _norm_cmp(_df_cmp).equals(_norm_cmp(_ed_cmp)) or bool(deleted)
     except Exception:
         _changed = True
 

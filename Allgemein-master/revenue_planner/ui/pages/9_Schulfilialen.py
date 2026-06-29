@@ -9,15 +9,16 @@ import pandas as pd
 
 require_db()
 conn = get_conn()
-st.title("Schulfilialen")
+st.title("Ferienschließungen")
 st.caption(f"Firma: **{get_gmbh()}**")
 
 st.info(
     "Schulfilialen sind Filialen, die in Ferienzeiträumen historisch geschlossen waren "
     "(z.B. Bäckereien in Schulgebäuden oder Kantinen). "
     "Werden sie als geschlossen markiert, wird für diese Zeiträume im Budgetjahr kein Umsatz geplant.\n\n"
-    "Die automatische Erkennung vergleicht die IST-Umsätze in den Ferienwochen: "
-    "Hat eine Filiale in ≥ 80 % der Ferientage keinen Umsatz gemeldet, wird sie als Schulfiliale markiert."
+    "Die automatische Erkennung vergleicht die IST-Umsätze an Werktagen (Mo–Fr) in den Ferienwochen: "
+    "Hat eine Filiale an ≥ 80 % der Werktage in den Ferien keinen Umsatz gemeldet, "
+    "wird sie als geschlossen markiert."
 )
 
 
@@ -46,7 +47,11 @@ def detect_schulfilialen(conn_db, threshold=0.8) -> dict:
             ende = pd.to_datetime(fer["ende"])
         except Exception:
             continue
-        period = ist[(ist["datum_dt"] >= start) & (ist["datum_dt"] <= ende)]
+        period = ist[
+            (ist["datum_dt"] >= start)
+            & (ist["datum_dt"] <= ende)
+            & (ist["datum_dt"].dt.weekday < 5)
+        ]
 
         for fil_nr, fil_bl_val in fil_bl.items():
             if bl != "alle" and fil_bl_val != bl:

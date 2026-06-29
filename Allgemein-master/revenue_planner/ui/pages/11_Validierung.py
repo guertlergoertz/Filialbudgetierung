@@ -379,12 +379,21 @@ for f in filialen:
             "Umbau von": _ui.get("umbau_von", ""),
             "Umbau bis": _ui.get("umbau_bis", ""),
         })
-add("warn" if _no_umsatz_last else "ok",
-    f"Aktive Filialen ohne Umsatz im letzten Basismonat ({_last_ym}): {len(_no_umsatz_last)}",
-    pd.DataFrame(_no_umsatz_last) if _no_umsatz_last else None,
+_no_umsatz_crit = [x for x in _no_umsatz_last if not x.get("Umbau von")]
+_7b_status = "crit" if _no_umsatz_crit else ("warn" if _no_umsatz_last else "ok")
+_7b_caption = (
+    "Aktive Filialen ohne Umsatz im letzten Basismonat und ohne hinterlegte Umbauphase. "
+    "Ohne eine Deaktivierung der Filiale oder Hinterlegung einer Umbauphase wird die Filiale "
+    "mit Umsatz budgetiert, was ggf. falsch sein kann."
+    if _no_umsatz_crit else
     "Diese Filialen werden bei der Planung hochgerechnet. "
     "Liegt ein Umbau vor, bitte 'Umbau von/bis' in den Filialstammdaten hinterlegen — "
-    "im Umbau-Zeitraum werden keine Budgetwerte berechnet.")
+    "im Umbau-Zeitraum werden keine Budgetwerte berechnet."
+)
+add(_7b_status,
+    f"Aktive Filialen ohne Umsatz im letzten Basismonat ({_last_ym}): {len(_no_umsatz_last)}",
+    pd.DataFrame(_no_umsatz_last) if _no_umsatz_last else None,
+    _7b_caption)
 
 # 7c) Filialen mit nur einem der beiden Umbau-Felder gesetzt
 if "umbau_von" in _umbau_cols:
@@ -434,7 +443,7 @@ for status, titel, details, caption in checks:
             st.dataframe(details, use_container_width=True, hide_index=True)
 
 # ── Validierungs-Status in DB speichern (für Menü-Badge in app.py) ────────────
-_has_issue = n_crit > 0 or n_warn > 0 or not _cl_all_checked
+_has_issue = n_crit > 0 or not _cl_all_checked
 conn.execute(
     "INSERT OR REPLACE INTO validation_status (planjahr, has_issue, updated_at) VALUES (?,?,?)",
     (planjahr, int(_has_issue), date.today().isoformat())
