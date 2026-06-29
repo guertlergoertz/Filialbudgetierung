@@ -6,6 +6,12 @@
 
 ## Behoben ✅
 
+- **Filialstammdaten: leere Zellen + Scroll-Reset + Plausibilitätsbadge + Ferienschließungen + Feiertag-Budgetregel** (06/2026):
+  `geplanter_umsatz_monat`: `fillna(0.0)` entfernt → leere Zellen bleiben leer; Format von ungültigem `",.0f €"` auf `"%.0f €"` (gültiges printf) geändert. `_norm_cmp()` normalisiert Datums- und Zahlspalten vor `equals()`-Vergleich, verhindert falsche `_changed=True`-Trigger und Scroll-to-top beim Verlassen einer Zelle.
+  Plausibilitätsprüfung Check 7b: `"crit"` (❌) wenn Filiale ohne Umsatz im letzten Basismonat **und** ohne Umbaudatum; `"warn"` wenn Umbaudatum vorhanden. Menü-Badge ❌ nur noch bei kritischen Fehlern oder offener Checkliste (nicht bei Warnungen).
+  Schulfilialen → **Ferienschließungen** umbenannt (Nav + Seitentitel). `detect_schulfilialen()` filtert jetzt auf Werktage Mo–Fr bevor die 80%-Schwelle angewendet wird.
+  engine2: Feiertage werden nur budgetiert wenn die Filiale im Basiszeitraum an diesem Feiertag offen war (`raw_basis_ist > 0`). Feiertage mit 0-Basis-IST geben `budget=0 / tagestyp=geschlossen` zurück. Imputation-Pfad: `m["base_ist"] >= _MIN_IST` als zusätzliche Bedingung verhindert Imputation für Feiertage, an denen die Filiale tatsächlich geschlossen war. Umbau-Hochrechnung funktioniert bereits korrekt durch Dreisatz (monat_basis = voller Basismonat, verteilt nur auf offene Tage).
+
 - **Engine2 Redesign: Dreisatz-Verteilung, budget_i/Budget II, neue Feiertag-Shift-Logik** (06/2026):
   Vollständiger Umbau von `planning/engine2.py`. IST-Basis = `anteil × monat_basis` (Dreisatz:
   Raw-Basis-IST als Gewichte). Feiertag-Shift: `_same_month_normal_avg` (gleicher Monat,
@@ -147,6 +153,7 @@
 
 | Git-Hash | Beschreibung |
 |----------|-------------|
+| `0ba239b` | Filialstammdaten leer/Format/Scroll, Plausibilitätsbadge, Ferienschließungen, Feiertag-Budgetregel |
 | `98c4eaa` | Ferienabschlag-Logik (VORWÄRTS-Fallback, mapping_art='ferienabschlag', Engine-Branch); _ferien_faktor_fallback; Filialen Auto-Save |
 | `9544e68` | CLAUDE.md aufgeteilt in docs/architecture, ui-patterns, open-issues; Datenschutzregel |
 | `49000d9` | Feiertage/Ferien: BL-Filter, Schulferien auto alle 16 BL, Spaltenumbenennung; Datumsmapping: Feiertagstag in Basisbeschreibung; Validierung: 3 neue Vergleichs-Checks |
