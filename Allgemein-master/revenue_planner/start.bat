@@ -23,12 +23,9 @@ if not exist ".venv" (
     python -m venv .venv
 )
 
-:: Activate venv
-call .venv\Scripts\activate.bat
-
-:: Install / update dependencies
+:: Install / update dependencies using venv Python directly (no activate needed)
 echo Pruefe Abhaengigkeiten...
-pip install -q -r requirements.txt
+.venv\Scripts\python.exe -m pip install -q -r requirements.txt
 
 :: Start app
 echo.
@@ -38,6 +35,6 @@ echo   Zum Beenden: dieses Fenster schliessen
 echo ============================================
 echo.
 
-streamlit run app.py --server.port 8501 --server.headless false --browser.gatherUsageStats false
+.venv\Scripts\python.exe -m streamlit run app.py --server.port 8501 --server.headless false --browser.gatherUsageStats false
 
 pause
