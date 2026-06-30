@@ -745,6 +745,7 @@ class PlanningEngine2:
         # Umbau-Filialen: Start- und/oder End-Monat des Umbaus im Budgetjahr werden
         # hochgerechnet (da Umbau mitten im Monat starten/enden kann).
         # Werden zu neue_filialen hinzugefügt, damit ref_day_budgets und wt_shares verfügbar sind.
+        import logging as _log2
         umbau_monate: dict[str, set[int]] = {}
         for fil_nr in active:
             fil = self.filialen.get(fil_nr, {})
@@ -755,16 +756,16 @@ class PlanningEngine2:
                     uvon_d = date.fromisoformat(uvon)
                     if uvon_d.year == plan_year:
                         months.add(uvon_d.month)
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as _exc:
+                    _log2.warning("umbau_von date parse error fil_nr=%s value=%r: %s", fil_nr, uvon, _exc)
             ubis = fil.get("umbau_bis")
             if ubis:
                 try:
                     ubis_d = date.fromisoformat(ubis)
                     if ubis_d.year == plan_year:
                         months.add(ubis_d.month)
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as _exc:
+                    _log2.warning("umbau_bis date parse error fil_nr=%s value=%r: %s", fil_nr, ubis, _exc)
             if months:
                 umbau_monate[fil_nr] = months
         neue_filialen |= set(umbau_monate.keys())

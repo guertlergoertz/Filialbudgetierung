@@ -88,7 +88,9 @@ def _render_tab1(conn):
                 "(Zeilen direkt bearbeiten – Änderungen werden automatisch gespeichert)")
     st.info(
         "**Umbau:** Filialen, die im **Basiszeitraum** geschlossen hatten oder im "
-        "**Budgetjahr** schließen, müssen mit einem **Umbaudatum** versehen werden:"
+        "**Budgetjahr** schließen, müssen mit einem **Umbaudatum** versehen werden.\n\n"
+        "**Schließdaten:** Filialen, die dauerhaft schließen, müssen ein **Schließdatum** "
+        "erhalten – andernfalls werden sie weiterhin als geöffnet geplant."
     )
 
     edited = st.data_editor(

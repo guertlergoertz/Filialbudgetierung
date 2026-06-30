@@ -251,18 +251,13 @@ def detect_oeffnungstage(conn: sqlite3.Connection, force: bool = False) -> dict:
 
     _MEANINGFUL_REV = 100.0  # Mindest-Umsatz für „geöffnet"
 
-    # Wochentag-Erkennung: nur letzten 3 Wochen je Filiale verwenden
-    if not df.empty:
-        last_date = df["datum"].max()
-        recent_cutoff = last_date - pd.Timedelta(weeks=3)
-        df_recent = df[df["datum"] >= recent_cutoff]
-    else:
-        df_recent = df
-
     wd_branches = 0
-    for fil_nr, g in df_recent.groupby("fil_nr"):
+    for fil_nr, g in df.groupby("fil_nr"):
         if not force and fil_nr in existing_wd:
             continue
+        # Wochentag-Erkennung: nur letzten 3 Wochen je Filiale (per-branch cutoff)
+        branch_last = g["datum"].max()
+        g = g[g["datum"] >= branch_last - pd.Timedelta(weeks=3)]
         for wt in range(7):
             sub = g[g["wt"] == wt]
             total = len(sub)
