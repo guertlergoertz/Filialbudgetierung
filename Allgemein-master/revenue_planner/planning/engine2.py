@@ -732,15 +732,14 @@ class PlanningEngine2:
             nxt = cur.month + 1
             cur = cur.replace(year=cur.year + (nxt - 1) // 12, month=(nxt - 1) % 12 + 1)
 
-        # Neue Filialen: IST-Lücken nur wenn durch Eröffnung oder Umbau erklärbar.
+        # Neue Filialen: alle Filialen mit IST-Lücken im Basiszeitraum (mindestens
+        # ein Monat 0, mindestens ein Monat > 0) — unabhängig vom Grund der Lücke.
         neue_filialen: set[str] = set()
         for fil_nr in active:
             mo = all_monthly_ist.get(fil_nr, {})
             month_sums = [mo.get(ym, 0.0) for ym in all_base_months]
             if any(s > 0 for s in month_sums) and any(s == 0.0 for s in month_sums):
-                fil = self.filialen.get(fil_nr, {})
-                if fil.get("eroeffnung") or fil.get("umbau_von"):
-                    neue_filialen.add(fil_nr)
+                neue_filialen.add(fil_nr)
 
         # Umbau-Filialen: Start- und/oder End-Monat des Umbaus im Budgetjahr werden
         # hochgerechnet (da Umbau mitten im Monat starten/enden kann).
@@ -751,6 +750,7 @@ class PlanningEngine2:
             fil = self.filialen.get(fil_nr, {})
             months: set[int] = set()
             uvon = fil.get("umbau_von")
+            ubis = fil.get("umbau_bis")
             if uvon:
                 try:
                     uvon_d = date.fromisoformat(uvon)
@@ -758,7 +758,6 @@ class PlanningEngine2:
                         months.add(uvon_d.month)
                 except (ValueError, TypeError) as _exc:
                     _log2.warning("umbau_von date parse error fil_nr=%s value=%r: %s", fil_nr, uvon, _exc)
-            ubis = fil.get("umbau_bis")
             if ubis:
                 try:
                     ubis_d = date.fromisoformat(ubis)
@@ -766,6 +765,19 @@ class PlanningEngine2:
                         months.add(ubis_d.month)
                 except (ValueError, TypeError) as _exc:
                     _log2.warning("umbau_bis date parse error fil_nr=%s value=%r: %s", fil_nr, ubis, _exc)
+            # Auch Plan-Monate hochrechnen, deren Basis-Monat in den Umbau-Zeitraum fiel
+            # (z. B. Umbau im Basiszeitraum beendet → Start-Monat des Umbaus im Budgetjahr).
+            if uvon and ubis:
+                try:
+                    uvon_d = date.fromisoformat(uvon)
+                    ubis_d = date.fromisoformat(ubis)
+                    for m in range(1, 13):
+                        by = e.base_year_for_month(m)
+                        last_day = int(pd.Period(f"{by}-{m:02d}").days_in_month)
+                        if uvon_d <= date(by, m, last_day) and ubis_d >= date(by, m, 1):
+                            months.add(m)
+                except (ValueError, TypeError) as _exc:
+                    _log2.warning("umbau base-overlap calc error fil_nr=%s: %s", fil_nr, _exc)
             if months:
                 umbau_monate[fil_nr] = months
         neue_filialen |= set(umbau_monate.keys())

@@ -122,12 +122,12 @@ def _render_tab1(conn):
                 width=180,
             ),
             "umbau_von": st.column_config.DateColumn(
-                "Umbau von", format="DD.MM.YYYY", width=100,
-                help="Beginn Umbauphase – in diesem Zeitraum werden keine Budgetwerte berechnet",
+                "Umbau/Schließung von", format="DD.MM.YYYY", width=120,
+                help="Beginn Umbau-/Schließungsphase – in diesem Zeitraum werden keine Budgetwerte berechnet",
             ),
             "umbau_bis": st.column_config.DateColumn(
-                "Umbau bis", format="DD.MM.YYYY", width=100,
-                help="Ende Umbauphase",
+                "Umbau/Schließung bis", format="DD.MM.YYYY", width=120,
+                help="Ende Umbau-/Schließungsphase",
             ),
         },
         column_order=[

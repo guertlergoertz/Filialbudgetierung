@@ -433,6 +433,8 @@ if zeit_ebene == "Tag":
         name = feiertag_name or ""
         if typ in ("feiertag", "sondertag") and name:
             return name
+        if typ == "umbau":
+            return "Umbau/Schließung"
         if typ == "geschlossen":
             return f"Geschlossen ({name})" if name else "Geschlossen"
         return ""
