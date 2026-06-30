@@ -6,6 +6,17 @@
 
 ## Behoben ✅
 
+- **Umbau-Spalten-Umbenennung, Hochrechnung Startmonat + IST-Lücken-Filialen** (06/2026):
+  `2_Filialen`: Spalten-Labels "Umbau von/bis" → "Umbau/Schließung von/bis".
+  `16_Herleitung2`: `_build_tagesinfo` zeigt "Umbau/Schließung" für `tagestyp='umbau'` (war leer).
+  `engine2.run` Bug (a): `umbau_monate` erweitert um Plan-Monate, deren Basis-Monat im
+  Umbau-Zeitraum lag (z. B. Umbau begann im Basiszeitraum → Start-Monat im Budgetjahr wird
+  nun korrekt via Hochrechnung berechnet statt Dreisatz mit extrapoliertem `monat_basis`).
+  `engine2.run` Bug (b): `eroeffnung`/`umbau_von`-Filter aus `neue_filialen`-Erkennung entfernt
+  (Restore ALT-Verhalten). Filialen mit IST-Lücken ohne Stammdaten-Eintrag wurden fälschlich
+  durch Pass 1 geroutet; `_base_month_ist` extrapoliert für Lücken-Monate → IST-Basis statt
+  Hochrechnung. Jetzt: alle Filialen mit IST-Lücken → Pass 2 → korrekte Imputation.
+
 - **Feiertagstag-Datumsmapping, Hochrechnung ref-base, Tagesinfo, Planungsgenauigkeit** (06/2026):
   `datumsmapping`: Step 6 (VJ-Tagesvermeidung) läuft jetzt nur noch wenn `_used_iso_kw=True`
   (kein explizites datum_vj vorhanden). Feiertagstage mit gesetztem datum_vj werden nicht mehr
@@ -176,6 +187,7 @@
 
 | Git-Hash | Beschreibung |
 |----------|-------------|
+| `7aa4c74` | Umbau-Spalten-Umbenennung, Tagesinfo 'Umbau/Schließung', Hochrechnung Startmonat + IST-Lücken-Filialen (engine2) |
 | `0ba239b` | Filialstammdaten leer/Format/Scroll, Plausibilitätsbadge, Ferienschließungen, Feiertag-Budgetregel |
 | `98c4eaa` | Ferienabschlag-Logik (VORWÄRTS-Fallback, mapping_art='ferienabschlag', Engine-Branch); _ferien_faktor_fallback; Filialen Auto-Save |
 | `9544e68` | CLAUDE.md aufgeteilt in docs/architecture, ui-patterns, open-issues; Datenschutzregel |
