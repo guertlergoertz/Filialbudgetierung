@@ -264,10 +264,12 @@ def generate_datumsmapping(conn: sqlite3.Connection, planjahr: int, engine) -> i
                     base_d = _date_from_iso_week(by, iso_week, wt)
                     _used_iso_kw = True
 
-                # 6. For normal/feiertagstag days (and ferien days that fell back
-                # to ISO-KW): avoid landing on a VJ holiday, vacation, Feiertagstag,
-                # Sondertag or Dec 24/31 in the base year.
-                if plan_typ in ("normal", "feiertagstag") or (plan_typ == "ferien" and _used_iso_kw):
+                # 6. Avoid landing on VJ holiday, vacation, Feiertagstag, Sondertag or
+                # Dec 24/31 in the base year — only when no explicit datum_vj was available
+                # and the ISO-KW fallback was used. Feiertagstage with explicit datum_vj
+                # must NOT be shifted (their VJ date intentionally lands in the same ferien
+                # or is itself a Feiertagstag in VJ — shifting would produce wrong mappings).
+                if _used_iso_kw:
                     def _avoid(d, _bl=bl):
                         return (_is_vj_holiday(d, _bl, engine)
                                 or d.isoformat() in _vj_ferien_bl.get(_bl, set())

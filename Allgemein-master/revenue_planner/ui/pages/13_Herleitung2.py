@@ -165,6 +165,17 @@ if _cache_key not in st.session_state:
             str(r["fil_nr"]).strip(): r["eroeffnung"]
             for r in conn.execute("SELECT fil_nr, eroeffnung FROM filialen").fetchall()
         }
+        _fil_stamm = {
+            str(r["fil_nr"]).strip(): {
+                "eroeffnung": r["eroeffnung"],
+                "eroeffnung_ende": r["eroeffnung_ende"],
+                "umbau_von": r["umbau_von"],
+                "umbau_bis": r["umbau_bis"],
+            }
+            for r in conn.execute(
+                "SELECT fil_nr, eroeffnung, eroeffnung_ende, umbau_von, umbau_bis FROM filialen"
+            ).fetchall()
+        }
 
         st.session_state[_cache_key] = {
             "df": _df_raw,
@@ -173,6 +184,7 @@ if _cache_key not in st.session_state:
             "dm_typ_lookup": _dm_typ_lookup,
             "ferien_kal": _ferien_kal,
             "fil_eroeff": _fil_eroeff,
+            "fil_stamm": _fil_stamm,
         }
     st.rerun()
 
@@ -187,6 +199,7 @@ _dm_lookup = _cached["dm_lookup"]
 _dm_typ_lookup = _cached["dm_typ_lookup"]
 _ferien_kal_rows = _cached["ferien_kal"]
 _fil_eroeff = _cached.get("fil_eroeff", {})
+_fil_stamm = _cached.get("fil_stamm", {})
 _col_hint.caption(f"{len(df_all):,} Planzeilen geladen · {df_all['fil_nr'].nunique()} Filialen")
 
 if df_all.empty:
@@ -421,9 +434,47 @@ if zeit_ebene == "Tag":
             return dm_typ
         return typ
 
-    def _build_tagesinfo(tagestyp, feiertag_name):
-        typ = tagestyp or ""
-        name = feiertag_name or ""
+    def _parse_stamm_date(s):
+        if not s:
+            return None
+        try:
+            return pd.Timestamp(s)
+        except Exception:
+            return None
+
+    def _build_tagesinfo(row) -> str:
+        fil = str(row.get("fil_nr") or "")
+        d = row.get("datum")
+        try:
+            d_ts = pd.Timestamp(d)
+        except Exception:
+            d_ts = None
+
+        if d_ts is not None and fil:
+            stamm = _fil_stamm.get(fil, {})
+            eroeffnung = _parse_stamm_date(stamm.get("eroeffnung"))
+            ende       = _parse_stamm_date(stamm.get("eroeffnung_ende"))
+            umbau_von  = _parse_stamm_date(stamm.get("umbau_von"))
+            umbau_bis  = _parse_stamm_date(stamm.get("umbau_bis"))
+
+            if ende is not None:
+                if d_ts.date() == ende.date():
+                    return "Filialschließung"
+                if d_ts.date() > ende.date():
+                    return "geschlossen"
+
+            if umbau_von is not None and umbau_bis is not None:
+                if umbau_von.date() <= d_ts.date() <= umbau_bis.date():
+                    return "Umbau"
+
+            if eroeffnung is not None:
+                if d_ts.date() == eroeffnung.date():
+                    return "Filialeröffnung"
+                if d_ts.date() < eroeffnung.date():
+                    return "geschlossen"
+
+        typ = str(row.get("tagestyp") or "")
+        name = str(row.get("feiertag_name") or "")
         if typ in ("feiertag", "sondertag") and name:
             return name
         if typ == "geschlossen":
@@ -458,8 +509,7 @@ if zeit_ebene == "Tag":
 
     agg["_basisdatum"] = agg.apply(_lookup_basisdatum, axis=1)
     agg["_daytype"]    = agg.apply(_eff_daytype, axis=1)
-    agg["_tagesinfo"]  = agg.apply(
-        lambda r: _build_tagesinfo(r.get("tagestyp", ""), r.get("feiertag_name", "")), axis=1)
+    agg["_tagesinfo"]  = agg.apply(_build_tagesinfo, axis=1)
     agg["ferien_art"]  = agg.apply(_enrich_ferien_art, axis=1)
 
 # ── Summenzeilen ────────────────────────────────────────────────────────────────────────────────

@@ -810,7 +810,7 @@ class PlanningEngine2:
             if fil_nr in referenz_filialen:
                 for dp in branch_results:
                     iso = dp.datum.isoformat()
-                    ref_day_budgets[iso] = ref_day_budgets.get(iso, 0.0) + dp.gewuenschter_monatsumsatz
+                    ref_day_budgets[iso] = ref_day_budgets.get(iso, 0.0) + dp.budget
             done += 1
             if progress_callback:
                 progress_callback(done, n_total, fil_nr)

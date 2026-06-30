@@ -196,8 +196,6 @@ pages = st.navigation({
                 title="Planung ausführen",      icon=":material/calculate:"),
         st.Page(str(BASE / "ui/pages/13_Herleitung2.py"),
                 title="Herleitung",             icon=":material/account_tree:"),
-        st.Page(str(BASE / "ui/pages/14_Planungsgenauigkeit2.py"),
-                title="Planungsgenauigkeit",    icon=":material/analytics:"),
     ],
 })
 pages.run()

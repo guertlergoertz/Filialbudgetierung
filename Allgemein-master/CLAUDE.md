@@ -72,6 +72,13 @@ docs/
     Datums-Spalten vor Vergleich normalisieren (`_norm_for_compare`)!
 11. **Bundesland-Vergleiche** immer über `_normalize_bl()`. In UI ausgeschrieben anzeigen.
 12. **Bundesland als erste Spalte** in Tabellen, Sortierung BL → Datum.
+14. **MODUL-ISOLATION — KRITISCH:** Jede Berechnungskomponente ist ein eigenständiges Modul:
+    `datumsmapping` · `Hochrechnung` · `eff_wochentag` · `eff_ferien` · `eff_feiertag`
+    · `eff_preis` · `eff_oeffnung` · `Öffnungstage-Erkennung`.
+    Nur das explizit beauftragte Modul darf geändert werden — auch wenn andere Module
+    dabei "offensichtlich verbesserbar" erscheinen. Kein Modul darf als Nebeneffekt einer
+    anderen Änderung modifiziert werden. Diese Regel gilt sitzungsübergreifend und für
+    alle zukünftigen Projekte.
 13. **DATENSCHUTZ — NIEMALS echte Betriebs- oder Filialdaten laden:**
     `.db`-Dateien, CSV/Excel mit IST-Umsätzen oder Filialdaten **NIEMALS** per `Read`,
     `Bash cat/head`, `pd.read_sql` o.ä. in den Kontext laden. Nur Schema, Code und
