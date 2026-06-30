@@ -161,10 +161,6 @@ if _cache_key not in st.session_state:
         _has_data = _df_raw.groupby("fil_nr")[_check_cols].sum().abs().sum(axis=1) > 0
         _df_raw = _df_raw[_df_raw["fil_nr"].isin(_has_data[_has_data].index)]
 
-        _fil_eroeff = {
-            str(r["fil_nr"]).strip(): r["eroeffnung"]
-            for r in conn.execute("SELECT fil_nr, eroeffnung FROM filialen").fetchall()
-        }
         _fil_stamm = {
             str(r["fil_nr"]).strip(): {
                 "eroeffnung": r["eroeffnung"],
@@ -183,7 +179,6 @@ if _cache_key not in st.session_state:
             "dm_lookup": _dm_lookup,
             "dm_typ_lookup": _dm_typ_lookup,
             "ferien_kal": _ferien_kal,
-            "fil_eroeff": _fil_eroeff,
             "fil_stamm": _fil_stamm,
         }
     st.rerun()
@@ -198,8 +193,8 @@ _last_ist_date = _cached["last_ist_date"]
 _dm_lookup = _cached["dm_lookup"]
 _dm_typ_lookup = _cached["dm_typ_lookup"]
 _ferien_kal_rows = _cached["ferien_kal"]
-_fil_eroeff = _cached.get("fil_eroeff", {})
 _fil_stamm = _cached.get("fil_stamm", {})
+_fil_eroeff = {k: v["eroeffnung"] for k, v in _fil_stamm.items()}
 _col_hint.caption(f"{len(df_all):,} Planzeilen geladen · {df_all['fil_nr'].nunique()} Filialen")
 
 if df_all.empty:
@@ -444,7 +439,7 @@ if zeit_ebene == "Tag":
 
     def _build_tagesinfo(row) -> str:
         fil = str(row.get("fil_nr") or "")
-        d = row.get("datum")
+        d = row.get("_iso")
         try:
             d_ts = pd.Timestamp(d)
         except Exception:
