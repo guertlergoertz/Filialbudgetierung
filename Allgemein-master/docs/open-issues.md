@@ -6,6 +6,16 @@
 
 ## Behoben ✅
 
+- **Feiertagstag-Datumsmapping, Hochrechnung ref-base, Tagesinfo, Planungsgenauigkeit** (06/2026):
+  `datumsmapping`: Step 6 (VJ-Tagesvermeidung) läuft jetzt nur noch wenn `_used_iso_kw=True`
+  (kein explizites datum_vj vorhanden). Feiertagstage mit gesetztem datum_vj werden nicht mehr
+  in der VJ verschoben — behebt 02.04.2026 RP (Feiertagstag in Osterferien) → 10.04.2025 falsch
+  → 17.04.2025 korrekt. `engine2.run`: `ref_day_budgets` akkumuliert wieder `dp.budget` statt
+  `dp.gewuenschter_monatsumsatz`. `13_Herleitung2`: Tagesinfo-Spalte zeigt Umbau/Filialeröffnung/
+  Filialschließung/geschlossen aus Filialstammdaten (umbau_von/bis, eroeffnung, eroeffnung_ende).
+  Planungsgenauigkeit aus Navigation + Menü entfernt (3 Dateien gelöscht).
+  CLAUDE.md Regel 14: Modul-Isolation (nur explizit beauftragtes Modul ändern).
+
 - **Umbau-Hochrechnung, Feiertagstag-Schließung, wt_shares-Ausschluss, Öffnungstage-Fenster** (06/2026):
   `2_Filialen`: Infotext von Schließdaten auf Umbau-Beschreibung geändert.
   `importer.detect_oeffnungstage`: Wochentag-Erkennung nutzt nur letzten 3 Wochen IST (nicht gesamten Basiszeitraum).
@@ -15,7 +25,7 @@
   `engine2.plan_branch`: `umbau_hochrechnung_month` → `umbau_hochrechnung_months` (set[int]);
   Imputation nur für Start-/Endmonat des Umbaus im Budgetjahr, nicht für alle Monate mit 0-IST-Basis.
   `engine2.run`: erfasst beide Umbau-Monate (Start + Ende) wenn diese im Budgetjahr liegen.
-  `ref_day_budgets` akkumuliert `gewuenschter_monatsumsatz` statt `budget`.
+  `ref_day_budgets` akkumulierte `gewuenschter_monatsumsatz` statt `budget` (später rückgängig gemacht).
   `_wt_shares_for_branch`/`_ref_wt_sums`: Feiertage/Feiertagstage/Ferien/Sondertage aller
   beteiligten BL (Union-Ausschluss) aus Zähler und Nenner entfernt, damit Zeitreihen vergleichbar.
 
