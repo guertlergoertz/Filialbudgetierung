@@ -548,6 +548,12 @@ class PlanningEngine:
                 return ft
         return None
 
+    def _relevant_feiertagstag(self, iso: str, bl: str) -> dict | None:
+        for ft in self.feiertage.get(iso, []):
+            if ft["bundesland"] in ("alle", bl) and ft.get("art") == "feiertagstag":
+                return ft
+        return None
+
     def _relevant_sondertag(self, iso: str, bl: str) -> dict | None:
         st = self.sondertage.get(iso)
         if st and st["bundesland"] in ("alle", bl):

@@ -132,12 +132,15 @@ class PlanningEngine2:
 
     def _ref_wt_sums(self, ref_fil_nrs: set[str],
                      date_from: pd.Timestamp | None = None,
-                     date_to: pd.Timestamp | None = None) -> dict[int, float]:
+                     date_to: pd.Timestamp | None = None,
+                     excl: set[str] | None = None) -> dict[int, float]:
         """Wochentagsumsatz-Summen aller Referenzfilialen, optional auf ein Zeitfenster begrenzt.
 
         date_from / date_to sind inklusive Grenzen. Ohne Angabe wird der volle Basiszeitraum
         verwendet. Durch Übergabe des filial-spezifischen Zeitfensters (Zähler = Nenner)
         wird ein systematisch zu kleiner Anteil für neue Filialen vermieden.
+        excl: ISO-Datum-Menge, die aus der Berechnung ausgeschlossen wird
+        (Feiertage/Feiertagstage/Ferien/Sondertage aller beteiligten BL).
         """
         e = self.e
         d_from = date_from if date_from is not None else pd.Timestamp(e.base_start)
@@ -145,7 +148,11 @@ class PlanningEngine2:
         result: dict[int, float] = {w: 0.0 for w in range(7)}
         for fil_nr in ref_fil_nrs:
             df = e._branch_base_ist(fil_nr)
-            df = df[(df["datum"] >= d_from) & (df["datum"] <= d_to) & (df["umsatz"] > 0)]
+            mask = (df["datum"] >= d_from) & (df["datum"] <= d_to) & (df["umsatz"] > 0)
+            if excl:
+                iso = df["datum"].dt.strftime("%Y-%m-%d")
+                mask = mask & (~iso.isin(excl))
+            df = df[mask]
             if df.empty:
                 continue
             for w, grp in df.groupby(df["datum"].dt.weekday):
@@ -156,13 +163,22 @@ class PlanningEngine2:
         """Wochentagsanteil dieser Filiale relativ zu den Referenzfilialen.
 
         Zähler und Nenner werden auf denselben Zeitraum eingeschränkt (nach 14-Tage-Blackout),
-        damit kein systematisch zu kleiner Anteil entsteht. Für Wochentage ohne historischen IST
-        (z. B. erst kürzlich sonntags geöffnet) wird der Durchschnittsanteil aller anderen
-        Wochentage als Fallback verwendet.
+        damit kein systematisch zu kleiner Anteil entsteht. Feiertage/Feiertagstage/Ferien/
+        Sondertage aller beteiligten BL werden aus Zähler und Nenner ausgeschlossen, damit
+        die Zeitreihen vergleichbar bleiben (Union-Ausschluss).
+        Für Wochentage ohne historischen IST wird der Durchschnittsanteil als Fallback verwendet.
         """
         e = self.e
+        fil_bl = _normalize_bl(e.filialen.get(fil_nr, {}).get("bundesland", "RP") or "RP")
+        ref_bls = {_normalize_bl(e.filialen.get(r, {}).get("bundesland", "RP") or "RP")
+                   for r in ref_fil_nrs}
+        excl: set[str] = set()
+        for bl in ref_bls | {fil_bl}:
+            excl |= self._excluded_base_dates(bl)
+
         df = e._branch_base_ist(fil_nr)
-        df = df[df["umsatz"] >= _MIN_IST]
+        iso = df["datum"].dt.strftime("%Y-%m-%d")
+        df = df[(df["umsatz"] >= _MIN_IST) & (~iso.isin(excl))]
 
         eroeff = e.filialen.get(fil_nr, {}).get("eroeffnung")
         if eroeff:
@@ -174,7 +190,7 @@ class PlanningEngine2:
 
         date_from = df["datum"].min()
         date_to = df["datum"].max()
-        ref_wt_sums = self._ref_wt_sums(ref_fil_nrs, date_from=date_from, date_to=date_to)
+        ref_wt_sums = self._ref_wt_sums(ref_fil_nrs, date_from=date_from, date_to=date_to, excl=excl)
 
         new_by_wt: dict[int, float] = {w: 0.0 for w in range(7)}
         for w, grp in df.groupby(df["datum"].dt.weekday):
@@ -288,6 +304,7 @@ class PlanningEngine2:
         iso = d.isoformat()
         wt = d.weekday()
         ft = e._relevant_feiertag(iso, bl)
+        ftt = e._relevant_feiertagstag(iso, bl)
         st = e._relevant_sondertag(iso, bl)
         fer = e._ferien_info_for_day(iso, bl)
         closed = False
@@ -313,6 +330,9 @@ class PlanningEngine2:
             elif ft and not e._is_open_feiertag(fil_nr, ft["name"]):
                 closed = True
                 feiertag_name = ft["name"]
+            elif ftt and not e._is_open_feiertag(fil_nr, ftt["name"]):
+                closed = True
+                feiertag_name = ftt["name"]
         if closed:
             return True, "geschlossen", feiertag_name, (fer[0] if fer else "")
         if ft:
@@ -329,7 +349,7 @@ class PlanningEngine2:
                     ref_day_budgets: dict[str, float] | None = None,
                     wt_shares: dict[int, float] | None = None,
                     had_feiertag_ist: bool = False,
-                    umbau_hochrechnung_month: int | None = None) -> list[DayPlan]:
+                    umbau_hochrechnung_months: set[int] | None = None) -> list[DayPlan]:
         e = self.e
         fil = self.filialen.get(fil_nr, {"bundesland": "RP"})
         bl = _normalize_bl(fil.get("bundesland", "RP") or "RP")
@@ -380,10 +400,10 @@ class PlanningEngine2:
                     eroeff_d = date.fromisoformat(eroeff_str)
                     if base_d < eroeff_d + timedelta(days=_BLACKOUT_DAYS):
                         base_ist = 0.0
-                # Umbau-Hochrechnung: Im End-Monat des Umbaus (Budgetjahr) wird der
-                # Basis-IST auf 0 gesetzt, damit vollimputation greift und der Monat
+                # Umbau-Hochrechnung: Im Start- und/oder End-Monat des Umbaus (Budgetjahr)
+                # wird der Basis-IST auf 0 gesetzt, damit vollimputation greift und der Monat
                 # wie bei neuen Filialen über Referenzfilialen hochgerechnet wird.
-                if umbau_hochrechnung_month is not None and month == umbau_hochrechnung_month and not closed:
+                if umbau_hochrechnung_months and month in umbau_hochrechnung_months and not closed:
                     base_ist = 0.0
                 art = self._mapping_art(bl, d)
                 metas.append({
@@ -464,9 +484,14 @@ class PlanningEngine2:
         # Vollimputation vorberechnen: Wenn ein Monat >5 offene Tage ohne Basis-IST hat,
         # werden alle Tage des Monats hochgerechnet (monat_plan wird auf 0 gesetzt,
         # da der Dreisatz bei so vielen Lücken kein verlässliches Ergebnis liefert).
+        # Bei Umbau-Filialen: nur für die explizit bezeichneten Umbau-Monate hochrechnen,
+        # damit Monate im Basiszeitraum mit 0-IST (wegen Umbau) nicht fälschlicherweise
+        # imputed werden.
         imputed_count_by_month: dict[int, int] = {}
         for _m in range(1, 13):
             if ref_day_budgets is None or wt_shares is None:
+                imputed_count_by_month[_m] = 0
+            elif umbau_hochrechnung_months is not None and _m not in umbau_hochrechnung_months:
                 imputed_count_by_month[_m] = 0
             else:
                 imputed_count_by_month[_m] = sum(
@@ -510,7 +535,11 @@ class PlanningEngine2:
                         if anzahl_offener_tage > 0 else 0.0
                     )
                 elif ref_day_budgets is not None and wt_shares is not None and not m["closed"]:
-                    if vollimputation or m["base_ist"] < _MIN_IST:
+                    _allow_impute = (
+                        umbau_hochrechnung_months is None
+                        or month in umbau_hochrechnung_months
+                    )
+                    if _allow_impute and (vollimputation or m["base_ist"] < _MIN_IST):
                         is_feiertag = m["tagestyp"] == "feiertag"
                         if is_feiertag:
                             if had_feiertag_ist and m["base_ist"] >= _MIN_IST:
@@ -713,20 +742,32 @@ class PlanningEngine2:
                 if fil.get("eroeffnung") or fil.get("umbau_von"):
                     neue_filialen.add(fil_nr)
 
-        # Umbau-Filialen mit Umbau-Ende im Budgetjahr: End-Monat wird hochgerechnet.
+        # Umbau-Filialen: Start- und/oder End-Monat des Umbaus im Budgetjahr werden
+        # hochgerechnet (da Umbau mitten im Monat starten/enden kann).
         # Werden zu neue_filialen hinzugefügt, damit ref_day_budgets und wt_shares verfügbar sind.
-        umbau_endmonat: dict[str, int] = {}
+        umbau_monate: dict[str, set[int]] = {}
         for fil_nr in active:
             fil = self.filialen.get(fil_nr, {})
+            months: set[int] = set()
+            uvon = fil.get("umbau_von")
+            if uvon:
+                try:
+                    uvon_d = date.fromisoformat(uvon)
+                    if uvon_d.year == plan_year:
+                        months.add(uvon_d.month)
+                except (ValueError, TypeError):
+                    pass
             ubis = fil.get("umbau_bis")
             if ubis:
                 try:
                     ubis_d = date.fromisoformat(ubis)
                     if ubis_d.year == plan_year:
-                        umbau_endmonat[fil_nr] = ubis_d.month
+                        months.add(ubis_d.month)
                 except (ValueError, TypeError):
                     pass
-        neue_filialen |= set(umbau_endmonat.keys())
+            if months:
+                umbau_monate[fil_nr] = months
+        neue_filialen |= set(umbau_monate.keys())
 
         # Bestandsfilialen = aktive Filialen ohne IST-Lücken, dienen als Referenz.
         referenz_filialen: set[str] = set()
@@ -768,19 +809,19 @@ class PlanningEngine2:
             if fil_nr in referenz_filialen:
                 for dp in branch_results:
                     iso = dp.datum.isoformat()
-                    ref_day_budgets[iso] = ref_day_budgets.get(iso, 0.0) + dp.budget
+                    ref_day_budgets[iso] = ref_day_budgets.get(iso, 0.0) + dp.gewuenschter_monatsumsatz
             done += 1
             if progress_callback:
                 progress_callback(done, n_total, fil_nr)
 
-        # Pass 2: Filialen mit IST-Lücken (neue Filialen + Umbau-Ende im Budgetjahr).
+        # Pass 2: Filialen mit IST-Lücken (neue Filialen + Umbau-Monate im Budgetjahr).
         for fil_nr in neue_filialen:
             branch_results = self.plan_branch(
                 fil_nr,
                 ref_day_budgets=ref_day_budgets,
                 wt_shares=wt_shares_cache[fil_nr],
                 had_feiertag_ist=feiertag_cache[fil_nr],
-                umbau_hochrechnung_month=umbau_endmonat.get(fil_nr),
+                umbau_hochrechnung_months=umbau_monate.get(fil_nr),
             )
             out.extend(branch_results)
             done += 1

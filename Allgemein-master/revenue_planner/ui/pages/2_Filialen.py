@@ -87,10 +87,8 @@ def _render_tab1(conn):
     st.markdown(f"**{len(df)} Filialen** in der Datenbank  "
                 "(Zeilen direkt bearbeiten – Änderungen werden automatisch gespeichert)")
     st.info(
-        "**Schließdaten:** Filialen, die im **Basiszeitraum oder im Budgetjahr** schließen, "
-        "müssen mit einem **Schließdatum** versehen werden – andernfalls werden sie in der "
-        "Planung weiterhin als geöffnet behandelt. Gilt die Schließung für beide Zeiträume, "
-        "ist das jeweils relevante Datum einzutragen."
+        "**Umbau:** Filialen, die im **Basiszeitraum** geschlossen hatten oder im "
+        "**Budgetjahr** schließen, müssen mit einem **Umbaudatum** versehen werden:"
     )
 
     edited = st.data_editor(
