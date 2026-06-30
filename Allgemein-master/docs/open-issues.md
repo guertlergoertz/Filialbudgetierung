@@ -6,6 +6,19 @@
 
 ## Behoben ✅
 
+- **Umbau-Hochrechnung, Feiertagstag-Schließung, wt_shares-Ausschluss, Öffnungstage-Fenster** (06/2026):
+  `2_Filialen`: Infotext von Schließdaten auf Umbau-Beschreibung geändert.
+  `importer.detect_oeffnungstage`: Wochentag-Erkennung nutzt nur letzten 3 Wochen IST (nicht gesamten Basiszeitraum).
+  `engine._relevant_feiertagstag()` hinzugefügt; `engine2._closed_and_type` prüft Feiertagstage
+  gegen `filial_feiertag` → Fil. 60 / Tag nach CHH (29.05.2025) war im Basiszeitraum geschlossen,
+  wird jetzt auch im Budgetjahr als geschlossen geplant.
+  `engine2.plan_branch`: `umbau_hochrechnung_month` → `umbau_hochrechnung_months` (set[int]);
+  Imputation nur für Start-/Endmonat des Umbaus im Budgetjahr, nicht für alle Monate mit 0-IST-Basis.
+  `engine2.run`: erfasst beide Umbau-Monate (Start + Ende) wenn diese im Budgetjahr liegen.
+  `ref_day_budgets` akkumuliert `gewuenschter_monatsumsatz` statt `budget`.
+  `_wt_shares_for_branch`/`_ref_wt_sums`: Feiertage/Feiertagstage/Ferien/Sondertage aller
+  beteiligten BL (Union-Ausschluss) aus Zähler und Nenner entfernt, damit Zeitreihen vergleichbar.
+
 - **Filialstammdaten: leere Zellen + Scroll-Reset + Plausibilitätsbadge + Ferienschließungen + Feiertag-Budgetregel** (06/2026):
   `geplanter_umsatz_monat`: `fillna(0.0)` entfernt → leere Zellen bleiben leer; Format von ungültigem `",.0f €"` auf `"%.0f €"` (gültiges printf) geändert. `_norm_cmp()` normalisiert Datums- und Zahlspalten vor `equals()`-Vergleich, verhindert falsche `_changed=True`-Trigger und Scroll-to-top beim Verlassen einer Zelle.
   Plausibilitätsprüfung Check 7b: `"crit"` (❌) wenn Filiale ohne Umsatz im letzten Basismonat **und** ohne Umbaudatum; `"warn"` wenn Umbaudatum vorhanden. Menü-Badge ❌ nur noch bei kritischen Fehlern oder offener Checkliste (nicht bei Warnungen).
